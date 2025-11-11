@@ -34,12 +34,18 @@ def fetch_earnings(symbol, years):
 @st.cache_data(ttl=3600)
 def fetch_prices(symbol):
     end = dt.date.today()
-    start = end - dt.timedelta(days=365*5)  # fetch up to 5 years
+    start = end - dt.timedelta(days=365*5)
     df = yf.download(symbol, start=start, end=end)
     if df.empty:
         return pd.DataFrame()
+    
+    # Ensure column names
+    if 'Adj Close' not in df.columns:
+        df['Adj Close'] = df['Close']  # fallback if adjusted close missing
+    
     df = df[['Open','High','Low','Close','Adj Close','Volume']]
     return df
+
 
 # --- Compute returns around earnings ---
 def compute_reactions(earn_df, price_df, windows=[-7,-3,-1,1,3,7]):
