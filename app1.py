@@ -51,7 +51,7 @@ def fetch_prices(symbol):
 def compute_reactions(earn_df, price_df, windows=[-7,-3,-1,1,3,7]):
     rows = []
     if earn_df.empty or price_df.empty:
-        return pd.DataFrame()  # safeguard
+        return pd.DataFrame()
 
     # ensure index is datetime
     price_df = price_df.copy()
@@ -61,26 +61,29 @@ def compute_reactions(earn_df, price_df, windows=[-7,-3,-1,1,3,7]):
     if 'Adj Close' not in price_df.columns:
         price_df['Adj Close'] = price_df['Close']
 
+    trading_days = price_df.index  # keep as DatetimeIndex
+
     for _, r in earn_df.iterrows():
-        edate = pd.to_datetime(r['date']).date()
+        edate = pd.to_datetime(r['date'])
         # find nearest trading day
-        trading_days = price_df.index.date
-        nearest_day = min(trading_days, key=lambda d: abs(d - edate))
-        base_price = price_df.loc[price_df.index.date == nearest_day, 'Adj Close'].iloc[0]
+        nearest_day = trading_days.get_indexer([edate], method='nearest')[0]
+        nearest_day = trading_days[nearest_day]  # back to Timestamp
+
+        base_price = price_df.loc[nearest_day, 'Adj Close']
 
         if np.isnan(base_price):
             continue
 
-        out = {"date": nearest_day,
+        out = {"date": nearest_day.date(),
                "EPS Estimate": r.get("EPS Estimate"),
                "Reported EPS": r.get("Reported EPS")}
 
         for w in windows:
-            target_date = nearest_day + dt.timedelta(days=w)
-            # find nearest trading day for target
-            nearest_target = min(trading_days, key=lambda d: abs(d - target_date))
-            p = price_df.loc[price_df.index.date == nearest_target, 'Adj Close'].iloc[0]
-            out[f'ret_{w}d'] = (p - base_price) / base_price
+            target_date = nearest_day + pd.Timedelta(days=w)
+            nearest_target_idx = trading_days.get_indexer([target_date], method='nearest')[0]
+            nearest_target = trading_days[nearest_target_idx]
+            p = price_df.loc[nearest_target, 'Adj Close']
+            out[f'ret_{w}d'] = (p - base_price)/base_price
 
         rows.append(out)
 
