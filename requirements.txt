@@ -4,3 +4,6 @@ numpy
 matplotlib
 seaborn
 yfinance
+lxml
+html5lib
+beautifulsoup4
