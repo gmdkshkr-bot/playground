@@ -50,31 +50,42 @@ def fetch_prices(symbol):
 # --- Compute returns around earnings ---
 def compute_reactions(earn_df, price_df, windows=[-7,-3,-1,1,3,7]):
     rows = []
+    if earn_df.empty or price_df.empty:
+        return pd.DataFrame()  # safeguard
+
+    # ensure index is datetime
+    price_df = price_df.copy()
+    price_df.index = pd.to_datetime(price_df.index)
+
+    # fallback for missing Adj Close
+    if 'Adj Close' not in price_df.columns:
+        price_df['Adj Close'] = price_df['Close']
+
     for _, r in earn_df.iterrows():
-        edate = pd.to_datetime(r['date'])
-        if edate not in price_df.index:
-            # get nearest trading day
-            try:
-                ed = price_df.index[price_df.index.get_indexer([edate], method="nearest")[0]]
-            except:
-                continue
-        else:
-            ed = edate
-        base_price = price_df.loc[ed, 'Adj Close']
+        edate = pd.to_datetime(r['date']).date()
+        # find nearest trading day
+        trading_days = price_df.index.date
+        nearest_day = min(trading_days, key=lambda d: abs(d - edate))
+        base_price = price_df.loc[price_df.index.date == nearest_day, 'Adj Close'].iloc[0]
+
         if np.isnan(base_price):
             continue
-        out = {"date": ed.date(), "EPS Estimate": r.get("EPS Estimate"), "Reported EPS": r.get("Reported EPS")}
+
+        out = {"date": nearest_day,
+               "EPS Estimate": r.get("EPS Estimate"),
+               "Reported EPS": r.get("Reported EPS")}
+
         for w in windows:
-            target = ed + pd.Timedelta(days=w)
-            if target not in price_df.index:
-                try:
-                    target = price_df.index[price_df.index.get_indexer([target], method="nearest")[0]]
-                except:
-                    continue
-            p = price_df.loc[target, 'Adj Close']
-            out[f'ret_{w}d'] = (p - base_price)/base_price
+            target_date = nearest_day + dt.timedelta(days=w)
+            # find nearest trading day for target
+            nearest_target = min(trading_days, key=lambda d: abs(d - target_date))
+            p = price_df.loc[price_df.index.date == nearest_target, 'Adj Close'].iloc[0]
+            out[f'ret_{w}d'] = (p - base_price) / base_price
+
         rows.append(out)
+
     return pd.DataFrame(rows)
+
 
 # --- Main ---
 if st.button("Run analysis"):
