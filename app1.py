@@ -1,49 +1,45 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import finnhub
-from datetime import datetime, timedelta
-
-# Finnhub API setup
-finnhub_client = finnhub.Client(api_key="YOUR_API_KEY_HERE")
+import requests
+from datetime import datetime
 
 st.title("📅 Earnings & Financial Events Calendar")
 
-# Select date
-selected_date = st.date_input("Select a date", datetime.today())
+# ---- User API key ----
+api_key = st.text_input("Enter your Finnhub API Key", type="password")
 
-# Convert to UNIX timestamp for API
-start_ts = int(datetime.combine(selected_date, datetime.min.time()).timestamp())
-end_ts = int(datetime.combine(selected_date, datetime.max.time()).timestamp())
+if api_key:
 
-st.subheader(f"Events on {selected_date.strftime('%Y-%m-%d')}")
+    # ---- Select date ----
+    selected_date = st.date_input("Select a date", datetime.today())
+    date_str = selected_date.strftime('%Y-%m-%d')
 
-# Fetch earnings calendar
-try:
-    earnings = finnhub_client.earnings_calendar(
-        start=datetime.fromtimestamp(start_ts).strftime('%Y-%m-%d'),
-        end=datetime.fromtimestamp(end_ts).strftime('%Y-%m-%d')
-    )
-    if earnings['earningsCalendar']:
-        df_earnings = pd.DataFrame(earnings['earningsCalendar'])
-        st.write("### Earnings Announcements")
-        st.dataframe(df_earnings[['symbol', 'date', 'hour', 'epsEstimate', 'epsActual']])
-    else:
-        st.info("No earnings announcements for this date.")
-except Exception as e:
-    st.error(f"Error fetching earnings: {e}")
+    st.subheader(f"Events on {date_str}")
 
-# Optional: Fetch major economic events (using Finnhub Economic Calendar)
-try:
-    events = finnhub_client.economic_calendar(
-        from_=(selected_date).strftime('%Y-%m-%d'),
-        to=(selected_date).strftime('%Y-%m-%d')
-    )
-    if events:
-        st.write("### Financial / Economic Events")
-        df_events = pd.DataFrame(events)
-        st.dataframe(df_events[['country', 'event', 'actual', 'forecast', 'previous']])
-    else:
-        st.info("No financial events for this date.")
-except Exception as e:
-    st.error(f"Error fetching events: {e}")
+    # ---- Fetch Earnings Calendar ----
+    earnings_url = f"https://finnhub.io/api/v1/calendar/earnings?from={date_str}&to={date_str}&token={api_key}"
+    try:
+        earnings_data = requests.get(earnings_url).json()
+        if earnings_data.get("earningsCalendar"):
+            df_earnings = pd.DataFrame(earnings_data["earningsCalendar"])
+            st.write("### 📈 Earnings Announcements")
+            st.dataframe(df_earnings[['symbol', 'date', 'hour', 'epsEstimate', 'epsActual']])
+        else:
+            st.info("No earnings announcements for this date.")
+    except Exception as e:
+        st.error(f"Error fetching earnings: {e}")
+
+    # ---- Fetch Economic Events ----
+    events_url = f"https://finnhub.io/api/v1/calendar/economic-events?from={date_str}&to={date_str}&token={api_key}"
+    try:
+        events_data = requests.get(events_url).json()
+        if events_data.get("economicCalendar"):
+            df_events = pd.DataFrame(events_data["economicCalendar"])
+            st.write("### 📊 Financial / Economic Events")
+            st.dataframe(df_events[['country', 'event', 'actual', 'forecast', 'previous']])
+        else:
+            st.info("No financial events for this date.")
+    except Exception as e:
+        st.error(f"Error fetching events: {e}")
+else:
+    st.warning("Please enter your Finnhub API key to see events.")
