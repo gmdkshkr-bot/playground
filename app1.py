@@ -41,10 +41,13 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
     """
     st.info("💡 Gemini API를 사용하여 영수증 분석을 시작합니다. (약 10~20초 소요)")
     # 🎯 데이터 추출 및 AI 카테고리 분류를 위한 프롬프트 (JSON 형식 강제)
+   # app.py (analyze_receipt_with_gemini 함수 내부)
+
     prompt_template = """
     당신은 영수증 분석 및 가계부 기록 전문가입니다. 
     이 영수증 이미지에서 다음 항목들을 분석하여 **반드시 JSON 형식**으로 추출해 주세요. 
-    **추가적인 설명이나 잡담은 일절 하지 마세요.**
+
+    **가장 중요한 지시:** 응답은 오직 **백틱(```json)으로 감싸진 JSON 코드 블록**으로만 제공해야 합니다. 어떤 형태의 설명, 인사, 추가 문구도 JSON 코드 블록 앞뒤에 포함하지 마세요.
 
     1. store_name: 상호명 (텍스트)
     2. date: 날짜 (YYYY-MM-DD 형식)
@@ -56,6 +59,7 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
         - category: 해당 품목에 가장 적절한 카테고리 (예: '식비', '교통', '생활용품', '문화/여가', '기타')를 **자동으로 분류**해서 넣어주세요.
 
     JSON Schema:
+    ```json
     {
       "store_name": "...",
       "date": "...",
@@ -64,7 +68,7 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
         {"name": "...", "price": ..., "quantity": ..., "category": "..."}
       ]
     }
-    """
+        """
 
     try:
         # 모델 호출 (gemini-2.5-flash는 멀티모달 처리가 빠르고 효율적입니다.)
@@ -108,6 +112,11 @@ if uploaded_file is not None:
 
                 if json_data_text:
                     try:
+                        # 1. JSON 코드 블록만 추출하는 방어 로직 추가
+                        if json_data_text.startswith("```json"):
+                        # 응답이 코드 블록으로 시작하는 경우, 블록 내부만 추출
+                        json_data_text = json_data_text.strip().lstrip("```json").rstrip("```").strip()
+                        
                         # 텍스트 응답을 JSON 객체로 파싱
                         receipt_data = json.loads(json_data_text)
                         
