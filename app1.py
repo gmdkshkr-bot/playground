@@ -33,13 +33,13 @@ client = genai.Client(api_key=API_KEY)
 
 
 # --- 1. Gemini 분석 함수 ---
+
 @st.cache_data(show_spinner=False)
-def analyze_receipt_with_gemini(image: Image.Image):
+def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('_') 추가!
     """
     Gemini 모델을 호출하여 영수증 이미지에서 데이터를 추출하고 카테고리를 분류합니다.
     """
     st.info("💡 Gemini API를 사용하여 영수증 분석을 시작합니다. (약 10~20초 소요)")
-
     # 🎯 데이터 추출 및 AI 카테고리 분류를 위한 프롬프트 (JSON 형식 강제)
     prompt_template = """
     당신은 영수증 분석 및 가계부 기록 전문가입니다. 
@@ -96,12 +96,14 @@ if uploaded_file is not None:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("🖼️ 업로드된 영수증")
-        st.image(image, use_column_width=True)
+        # 🚨 수정: use_column_width 대신 use_container_width 사용!
+        st.image(image, use_container_width=True) 
     
     with col2:
         st.subheader("📊 분석 및 기록")
         if st.button("✨ 영수증 분석 시작하기"):
             with st.spinner('AI가 영수증을 꼼꼼히 읽고 있습니다...'):
+                # image 인자를 전달할 때 함수 정의에 맞게 이름은 그대로 사용합니다.
                 json_data_text = analyze_receipt_with_gemini(image)
 
                 if json_data_text:
