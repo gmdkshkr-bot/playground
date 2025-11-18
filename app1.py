@@ -120,6 +120,10 @@ if uploaded_file is not None:
                         
                         # 텍스트 응답을 JSON 객체로 파싱
                         receipt_data = json.loads(json_data_text)
+
+                        # --- 통화 단위 추출 ---
+                        # 영수증에서 추출한 통화 단위를 변수에 저장합니다.
+                        currency_unit = receipt_data.get('currency_unit', '원')
                         
                         # --- 메인 정보 표시 ---
                         st.success("✅ 분석 완료! 아래 가계부 데이터를 확인해 보세요.")
