@@ -1,9 +1,4 @@
 streamlit
+google-genai
+Pillow
 pandas
-numpy
-matplotlib
-seaborn
-yfinance
-lxml
-html5lib
-beautifulsoup4
