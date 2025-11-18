@@ -64,6 +64,7 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
       "store_name": "...",
       "date": "...",
       "total_amount": ...,
+      "currency_unit": "...",  
       "items": [
         {"name": "...", "price": ..., "quantity": ..., "category": "..."}
       ]
