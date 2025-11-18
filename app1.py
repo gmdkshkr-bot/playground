@@ -1,59 +1,154 @@
+# app.py
+
 import streamlit as st
+import json
 import pandas as pd
-import requests
-from datetime import datetime, timedelta
+from PIL import Image
+import io
+# Google GenAI 라이브러리 임포트
+from google import genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-st.title("📅 Earnings & Financial Events Calendar")
+# --- Streamlit 페이지 설정 ---
+st.set_page_config(
+    page_title="영수증 똑똑이 가계부 도우미 🧾",
+    layout="wide"
+)
 
-# ---- Finnhub API key ----
-api_key = st.text_input("Enter your Finnhub API Key", type="password")
+st.title("🧾 영수증 똑똑이 가계부 도우미")
+st.markdown("---")
 
-if api_key:
-    # ---- Select date ----
-    selected_date = st.date_input("Select a date", datetime.today())
-    date_str = selected_date.strftime('%Y-%m-%d')
 
-    # ---- Optional: Filter by ticker ----
-    ticker = st.text_input("Optional: Enter a ticker symbol to filter earnings (e.g., AAPL)").upper()
+# --- 0. API 키 설정 (Streamlit Secrets 사용) ---
+# Streamlit Cloud 배포 시 st.secrets['GEMINI_API_KEY']를 사용합니다.
+# 로컬 테스트 시에는 'GEMINI_API_KEY' 환경 변수 또는 secrets.toml 파일을 사용하세요.
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except KeyError:
+    st.error("❌ 'GEMINI_API_KEY'를 Streamlit Secrets에 설정해 주세요.")
+    st.stop()
 
-    st.subheader(f"Events on {date_str}")
+# GenAI 클라이언트 초기화
+client = genai.Client(api_key=API_KEY)
 
-    # ---- Fetch Earnings Calendar ----
-    earnings_url = f"https://finnhub.io/api/v1/calendar/earnings?from={date_str}&to={date_str}&token={api_key}"
+
+# --- 1. Gemini 분석 함수 ---
+@st.cache_data(show_spinner=False)
+def analyze_receipt_with_gemini(image: Image.Image):
+    """
+    Gemini 모델을 호출하여 영수증 이미지에서 데이터를 추출하고 카테고리를 분류합니다.
+    """
+    st.info("💡 Gemini API를 사용하여 영수증 분석을 시작합니다. (약 10~20초 소요)")
+
+    # 🎯 데이터 추출 및 AI 카테고리 분류를 위한 프롬프트 (JSON 형식 강제)
+    prompt_template = """
+    당신은 영수증 분석 및 가계부 기록 전문가입니다. 
+    이 영수증 이미지에서 다음 항목들을 분석하여 **반드시 JSON 형식**으로 추출해 주세요. 
+    **추가적인 설명이나 잡담은 일절 하지 마세요.**
+
+    1. store_name: 상호명 (텍스트)
+    2. date: 날짜 (YYYY-MM-DD 형식)
+    3. total_amount: 총 결제 금액 (숫자만, 쉼표 없이)
+    4. items: 구매 품목 리스트. 각 품목에 대해 다음 정보를 포함해야 합니다.
+        - name: 품목명 (텍스트)
+        - price: 단가 (숫자만, 쉼표 없이)
+        - quantity: 수량 (숫자만)
+        - category: 해당 품목에 가장 적절한 카테고리 (예: '식비', '교통', '생활용품', '문화/여가', '기타')를 **자동으로 분류**해서 넣어주세요.
+
+    JSON Schema:
+    {
+      "store_name": "...",
+      "date": "...",
+      "total_amount": ...,
+      "items": [
+        {"name": "...", "price": ..., "quantity": ..., "category": "..."}
+      ]
+    }
+    """
+
     try:
-        earnings_data = requests.get(earnings_url).json()
-        earnings_list = earnings_data.get("earningsCalendar", [])
-
-        if earnings_list:
-            df_earnings = pd.DataFrame(earnings_list)
-
-            # Filter by ticker if provided
-            if ticker:
-                df_earnings = df_earnings[df_earnings['symbol'] == ticker]
-            
-            if not df_earnings.empty:
-                st.write("### 📈 Earnings Announcements")
-                st.dataframe(df_earnings[['symbol', 'date', 'hour', 'epsEstimate', 'epsActual']])
-            else:
-                st.info(f"No earnings found for {ticker} on this date.")
-        else:
-            st.info("No earnings announcements for this date.")
+        # 모델 호출 (gemini-2.5-flash는 멀티모달 처리가 빠르고 효율적입니다.)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt_template, image],
+            config=genai.types.GenerateContentConfig(
+                # 안전 필터 조정 (영수증 분석은 일반적으로 유해성이 없으므로 기본 설정 유지)
+                safety_settings=[
+                    {"category": HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
+                ]
+            )
+        )
+        return response.text
+    
     except Exception as e:
-        st.error(f"Error fetching earnings: {e}")
+        st.error(f"Gemini API 호출 중 오류가 발생했습니다: {e}")
+        return None
 
-    # ---- Fetch Economic Events ----
-    events_url = f"https://finnhub.io/api/v1/calendar/economic-events?from={date_str}&to={date_str}&token={api_key}"
-    try:
-        events_data = requests.get(events_url).json()
-        economic_list = events_data.get("economicCalendar", [])
-        if economic_list:
-            df_events = pd.DataFrame(economic_list)
-            st.write("### 📊 Financial / Economic Events")
-            st.dataframe(df_events[['country', 'event', 'actual', 'forecast', 'previous']])
-        else:
-            st.info("No financial events for this date.")
-    except Exception as e:
-        st.error(f"Error fetching events: {e}")
 
-else:
-    st.warning("Please enter your Finnhub API key to see events.")
+# --- 2. Streamlit UI 및 로직 ---
+
+uploaded_file = st.file_uploader("📸 분석할 영수증 사진(jpg, png)을 업로드해 주세요.", type=['jpg', 'png', 'jpeg'])
+
+if uploaded_file is not None:
+    # 파일을 PIL Image 객체로 변환
+    image = Image.open(uploaded_file)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🖼️ 업로드된 영수증")
+        st.image(image, use_column_width=True)
+    
+    with col2:
+        st.subheader("📊 분석 및 기록")
+        if st.button("✨ 영수증 분석 시작하기"):
+            with st.spinner('AI가 영수증을 꼼꼼히 읽고 있습니다...'):
+                json_data_text = analyze_receipt_with_gemini(image)
+
+                if json_data_text:
+                    try:
+                        # 텍스트 응답을 JSON 객체로 파싱
+                        receipt_data = json.loads(json_data_text)
+                        
+                        # --- 메인 정보 표시 ---
+                        st.success("✅ 분석 완료! 아래 가계부 데이터를 확인해 보세요.")
+                        
+                        # 메인 요약 정보를 표시
+                        st.markdown(f"**🏠 상호명:** {receipt_data.get('store_name', '정보 없음')}")
+                        st.markdown(f"**📅 날짜:** {receipt_data.get('date', '정보 없음')}")
+                        st.subheader(f"💰 총 결제 금액: {receipt_data.get('total_amount', 0):,} 원")
+                        st.markdown("---")
+
+                        # --- 품목별 데이터프레임 생성 ---
+                        if 'items' in receipt_data and receipt_data['items']:
+                            items_df = pd.DataFrame(receipt_data['items'])
+                            
+                            # 데이터프레임 컬럼 이름 변경 (사용자 친화적으로)
+                            items_df.columns = ['품목명', '단가', '수량', 'AI 카테고리']
+                            
+                            st.subheader("🛒 품목별 상세 내역")
+                            st.dataframe(items_df, use_container_width=True, hide_index=True)
+                            
+                            # --- 3. 데이터 다운로드 기능 추가 ---
+                            
+                            @st.cache_data
+                            def convert_df_to_csv(df):
+                                # DataFrame을 CSV 형식으로 변환 (인코딩: UTF-8-sig)
+                                return df.to_csv(index=False, encoding='utf-8-sig')
+
+                            csv = convert_df_to_csv(items_df)
+                            
+                            st.download_button(
+                                label="⬇️ 가계부 CSV 파일 다운로드",
+                                data=csv,
+                                file_name=f"{receipt_data.get('date', 'receipt')}_{receipt_data.get('store_name', 'data')}.csv",
+                                mime='text/csv',
+                            )
+                        else:
+                            st.warning("분석 결과에서 품목 리스트를 찾을 수 없습니다.")
+
+                    except json.JSONDecodeError:
+                        st.error("❌ Gemini 분석 결과가 올바른 JSON 형식이 아닙니다. 영수증 이미지를 더 선명하게 올려주세요.")
+                    except Exception as e:
+                        st.error(f"데이터 처리 중 예상치 못한 오류 발생: {e}")
+                else:
+                    st.error("분석을 완료하지 못했습니다. 다시 시도해 주세요.")
