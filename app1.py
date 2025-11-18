@@ -114,8 +114,8 @@ if uploaded_file is not None:
                     try:
                         # 1. JSON 코드 블록만 추출하는 방어 로직 추가
                         if json_data_text.startswith("```json"):
-                        # 응답이 코드 블록으로 시작하는 경우, 블록 내부만 추출
-                        json_data_text = json_data_text.strip().lstrip("```json").rstrip("```").strip()
+                            # 응답이 코드 블록으로 시작하는 경우, 블록 내부만 추출
+                            json_data_text = json_data_text.strip().lstrip("```json").rstrip("```").strip()
                         
                         # 텍스트 응답을 JSON 객체로 파싱
                         receipt_data = json.loads(json_data_text)
