@@ -126,6 +126,7 @@ if uploaded_file is not None:
                         # 영수증에서 추출한 통화 단위를 변수에 저장합니다.
                         #currency_unit = receipt_data.get('currency_unit', '원')
                         currency_unit = receipt_data.get('currency_unit', '').strip()
+                        display_unit = currency_unit if currency_unit else '원'
                         
                         # --- 메인 정보 표시 ---
                         st.success("✅ 분석 완료! 아래 가계부 데이터를 확인해 보세요.")
