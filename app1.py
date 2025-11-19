@@ -34,7 +34,7 @@ client = genai.Client(api_key=API_KEY)
 
 # --- 1. Gemini 분석 함수 ---
 
-@st.cache_data(show_spinner=False)
+#@st.cache_data(show_spinner=False)
 def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('_') 추가!
     """
     Gemini 모델을 호출하여 영수증 이미지에서 데이터를 추출하고 카테고리를 분류합니다.
@@ -52,7 +52,8 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
     1. store_name: 상호명 (텍스트)
     2. date: 날짜 (YYYY-MM-DD 형식)
     3. total_amount: 총 결제 금액 (숫자만, 쉼표 없이)
-    4. items: 구매 품목 리스트. 각 품목에 대해 다음 정보를 포함해야 합니다.
+    4. currency_unit: 영수증에 표기된 **통화의 공식 코드** (예: **USD**, KRW, EUR 등)를 추출해 주세요.
+    5. items: 구매 품목 리스트. 각 품목에 대해 다음 정보를 포함해야 합니다.
         - name: 품목명 (텍스트)
         - price: 단가 (숫자만, 쉼표 없이)
         - quantity: 수량 (숫자만)
@@ -123,7 +124,8 @@ if uploaded_file is not None:
 
                         # --- 통화 단위 추출 ---
                         # 영수증에서 추출한 통화 단위를 변수에 저장합니다.
-                        currency_unit = receipt_data.get('currency_unit', '원')
+                        #currency_unit = receipt_data.get('currency_unit', '원')
+                        currency_unit = receipt_data.get('currency_unit', '').strip()
                         
                         # --- 메인 정보 표시 ---
                         st.success("✅ 분석 완료! 아래 가계부 데이터를 확인해 보세요.")
@@ -131,7 +133,8 @@ if uploaded_file is not None:
                         # 메인 요약 정보를 표시
                         st.markdown(f"**🏠 상호명:** {receipt_data.get('store_name', '정보 없음')}")
                         st.markdown(f"**📅 날짜:** {receipt_data.get('date', '정보 없음')}")
-                        st.subheader(f"💰 총 결제 금액: {receipt_data.get('total_amount', 0):,} 원")
+                        #st.subheader(f"💰 총 결제 금액: {receipt_data.get('total_amount', 0):,} 원")
+                        st.subheader(f"💰 총 결제 금액: {receipt_data.get('total_amount', 0):,} {display_unit}")
                         st.markdown("---")
 
                         # --- 품목별 데이터프레임 생성 ---
