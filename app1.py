@@ -5,7 +5,6 @@ import json
 import pandas as pd
 from PIL import Image
 import io
-import pyheif
 # Google GenAI 라이브러리 임포트
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold
@@ -95,33 +94,16 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
 # --- 2. Streamlit UI 및 로직 ---
 
 uploaded_file = st.file_uploader("📸 분석할 영수증 사진(jpg, png)을 업로드해 주세요.",
-                                 type=['jpg', 'png', 'jpeg', 'heic', 'heif']) # heic, heif 추가 
+                                 type=['jpg', 'png', 'jpeg']) # heic, heif 추가 
 
 if uploaded_file is not None:
     # 파일을 PIL Image 객체로 변환
-    # 1. 파일 확장자 확인
-    file_extension = uploaded_file.name.split('.')[-1].lower()
-    
-    if file_extension in ['heic', 'heif']:
-        # HEIC 파일인 경우: pyheif로 읽고 PIL Image로 변환
-        st.info("🔄 HEIC 파일을 분석하기 위해 JPEG로 변환 중...")
-        try:
-            heif_file = pyheif.read(uploaded_file)
-            # heif_file 객체를 PIL Image 형식으로 디코딩
-            image = Image.frombytes(
-                heif_file.mode, 
-                heif_file.size, 
-                heif_file.data,
-                "raw",
-                heif_file.mode,
-                heif_file.stride,
-            )
-        except Exception as e:
-            st.error(f"HEIC 파일 변환 오류: {e}")
-            return
-    else:
-        # 일반 이미지 파일인 경우: PIL로 바로 열기
+    try:
         image = Image.open(uploaded_file)
+    except Exception as e:
+        st.error(f"이미지 파일 로드 오류: {e}")
+        return
+   
     
     # 이제 'image' 변수는 PIL Image 객체이며, 다음 분석 로직으로 넘어갑니다.
     
