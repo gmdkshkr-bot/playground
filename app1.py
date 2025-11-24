@@ -102,7 +102,6 @@ if uploaded_file is not None:
         image = Image.open(uploaded_file)
     except Exception as e:
         st.error(f"이미지 파일 로드 오류: {e}")
-        return
     # 이제 'image' 변수는 PIL Image 객체이며, 다음 분석 로직으로 넘어갑니다.
     
     col1, col2 = st.columns(2)
