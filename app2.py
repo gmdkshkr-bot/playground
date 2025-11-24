@@ -8,7 +8,7 @@ from google import genai
 # Corrected import path for types
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 import numpy as np
-import plotly.express as px # 👈 Plotly for interactive Pie Chart
+import plotly.express as px # Plotly for interactive Pie Chart
 
 # ----------------------------------------------------------------------
 # 📌 1. Initialize session state for cumulative receipt data (Runs once on app start)
@@ -29,7 +29,7 @@ st.set_page_config(
 
 
 # ----------------------------------------------------------------------
-# 💡 사이드바 (About This App) 추가
+# 💡 Sidebar (About This App)
 # ----------------------------------------------------------------------
 with st.sidebar:
     st.title("About This App")
@@ -274,10 +274,23 @@ if st.session_state.all_receipts_items:
     st.markdown("---")
     st.title("📚 Cumulative Spending Analysis Report")
 
+    # A. Display Accumulated Receipts Summary Table (NEW)
+    st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
+    summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
+    # Drop 'id' and reorder columns for presentation
+    summary_df = summary_df.drop(columns=['id'])
+    summary_df = summary_df[['Date', 'Store', 'Total', 'Currency', 'filename']] 
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    
     # 1. Create a single DataFrame from all accumulated items
     all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
     
-    # 2. Aggregate spending by category
+    st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
+    st.dataframe(all_items_df[['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend']], use_container_width=True, hide_index=True)
+
+    # 2. Aggregate spending by category and visualize
     category_summary = all_items_df.groupby('AI Category')['Total Spend'].sum().reset_index()
     category_summary.columns = ['Category', 'Amount']
     
@@ -296,7 +309,7 @@ if st.session_state.all_receipts_items:
         
     with col_pie:
         st.subheader("Pie Chart Visualization")
-        # 🚨 Pie Chart using Plotly Express for better visualization
+        # Pie Chart using Plotly Express for better visualization
         
         # Ensure only positive amounts are included in the chart
         chart_data = category_summary[category_summary['Amount'] > 0] 
