@@ -5,7 +5,7 @@ from PIL import Image
 import io
 # Google GenAI 라이브러리 임포트
 from google import genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google.genai.types import HarmCategory, HarmBlockThreshold
 import numpy as np
 
 # ----------------------------------------------------------------------
