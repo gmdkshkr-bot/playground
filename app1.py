@@ -11,7 +11,7 @@ from google.genai.types import HarmCategory, HarmBlockThreshold
 
 # --- Streamlit 페이지 설정 ---
 st.set_page_config(
-    page_title="영수증 똑똑이 가계부 도우미 🧾",
+    page_title="Smart Household Account Book 🧾",
     layout="wide"
 )
 
@@ -103,8 +103,6 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"이미지 파일 로드 오류: {e}")
         return
-   
-    
     # 이제 'image' 변수는 PIL Image 객체이며, 다음 분석 로직으로 넘어갑니다.
     
     col1, col2 = st.columns(2)
