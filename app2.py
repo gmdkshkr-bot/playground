@@ -8,6 +8,7 @@ from google import genai
 # Corrected import path for types
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 import numpy as np
+import plotly.express as px # 👈 Plotly for interactive Pie Chart
 
 # ----------------------------------------------------------------------
 # 📌 1. Initialize session state for cumulative receipt data (Runs once on app start)
@@ -26,6 +27,34 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ----------------------------------------------------------------------
+# 💡 사이드바 (About This App) 추가
+# ----------------------------------------------------------------------
+with st.sidebar:
+    st.title("About This App")
+    st.markdown("---")
+    
+    st.subheader("How to Use")
+    st.markdown("""
+    This application helps you manage your household ledger easily by using AI.
+    1. **Upload:** Upload one receipt image (JPG, PNG) at a time.
+    2. **Analyze:** Click 'Start Receipt Analysis' to extract store, date, items, and total amount.
+    3. **Accumulate:** The results are automatically added to the cumulative record.
+    4. **Review:** Check the integrated report, spending charts, and AI advice below.
+    """)
+    
+    st.subheader("APIs Used")
+    st.markdown("""
+    - **Google Gemini API:** Utilized for Multimodal analysis (OCR and categorization) of the receipt images.
+    - **Streamlit:** Used for creating the interactive web application interface.
+    - **Pandas/Plotly:** Used for data manipulation, accumulation, and visualization (charts).
+    """)
+    
+    st.markdown("---")
+    if st.session_state.all_receipts_items:
+        st.info(f"Currently tracking {len(st.session_state.all_receipts_items)} receipts.")
+        
 st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
 st.markdown("---")
 
@@ -78,7 +107,6 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     """
     
     try:
-        # Model call (gemini-2.5-flash is fast and efficient for multimodal processing)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=[prompt_template, _image],
@@ -249,19 +277,48 @@ if st.session_state.all_receipts_items:
     # 1. Create a single DataFrame from all accumulated items
     all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
     
-    st.subheader(f"({len(st.session_state.all_receipts_items)} Receipts) Integrated Data")
-    st.dataframe(all_items_df[['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend']], use_container_width=True, hide_index=True)
-
-    # 2. Aggregate spending by category and visualize
+    # 2. Aggregate spending by category
     category_summary = all_items_df.groupby('AI Category')['Total Spend'].sum().reset_index()
     category_summary.columns = ['Category', 'Amount']
     
-    st.markdown("---")
+    # --- Display Summary Table ---
     st.subheader("💰 Spending Summary by Category")
     st.dataframe(category_summary, use_container_width=True, hide_index=True)
-    # Note: Streamlit's bar_chart uses the index as the x-axis label
-    st.bar_chart(category_summary.set_index('Category'))
+
+    # --- Visualization ---
     
+    col_chart, col_pie = st.columns(2)
+    
+    with col_chart:
+        st.subheader("Bar Chart Visualization")
+        # Bar Chart
+        st.bar_chart(category_summary.set_index('Category'))
+        
+    with col_pie:
+        st.subheader("Pie Chart Visualization")
+        # 🚨 Pie Chart using Plotly Express for better visualization
+        
+        # Ensure only positive amounts are included in the chart
+        chart_data = category_summary[category_summary['Amount'] > 0] 
+        
+        if not chart_data.empty:
+            fig = px.pie(
+                chart_data, 
+                values='Amount', 
+                names='Category', 
+                title='Spending Distribution by Category',
+                # Set hole for a donut chart appearance
+                hole=.3, 
+            )
+            # Update layout for better appearance
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No spending data found to generate the pie chart.")
+
+
     # 3. Generate AI Analysis Report
     st.markdown("---")
     st.subheader("🤖 AI Expert's Advice on Total Spending")
