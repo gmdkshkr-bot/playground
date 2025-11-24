@@ -1,4 +1,0 @@
-libheif-dev
-pkg-config
-build-essential
-cmake
