@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🧾 영수증 똑똑이 가계부 도우미")
+st.title("🧾 Smart Household Account Book")
 st.markdown("---")
 
 
