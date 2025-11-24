@@ -9,6 +9,17 @@ import io
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold
 
+# ----------------------------------------------------------------------
+# 📌 1. 전체 영수증 데이터를 저장할 세션 상태 초기화
+# ----------------------------------------------------------------------
+if 'all_receipts_items' not in st.session_state:
+    # 품목별 상세 데이터(DataFrame의 리스트)를 저장할 공간
+    st.session_state.all_receipts_items = [] 
+if 'all_receipts_summary' not in st.session_state:
+    # 영수증별 요약 데이터 (총액, 상호 등)를 저장할 공간
+    st.session_state.all_receipts_summary = []
+
+
 # --- Streamlit 페이지 설정 ---
 st.set_page_config(
     page_title="Smart Household Account Book 🧾",
@@ -92,88 +103,98 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
 
 
 # --- 2. Streamlit UI 및 로직 ---
+# app.py (기존 file_uploader 부분 수정)
 
 uploaded_file = st.file_uploader("📸 분석할 영수증 사진(jpg, png)을 업로드해 주세요.",
-                                 type=['jpg', 'png', 'jpeg']) # heic, heif 추가 
+                                 type=['jpg', 'png', 'jpeg'],
+                                 accept_multiple_files=True # 다중 파일 허용
+                                )
 
-if uploaded_file is not None:
-    # 파일을 PIL Image 객체로 변환
-    try:
-        image = Image.open(uploaded_file)
-    except Exception as e:
-        st.error(f"이미지 파일 로드 오류: {e}")
-    # 이제 'image' 변수는 PIL Image 객체이며, 다음 분석 로직으로 넘어갑니다.
+
+if uploaded_files:
+    if st.button("🔍 영수증 분석 시작하기"):
+        
+        with st.spinner("⏳ 선택된 영수증들을 순차적으로 분석 중입니다..."):
+            
+            # --- 2. 다중 파일 반복 처리 ---
+            for i, uploaded_file in enumerate(uploaded_files):
+                st.write(f"--- **[{i+1}/{len(uploaded_files)}]** {uploaded_file.name} 분석 시작 ---")
+                
+                # 1. 이미지 로드
+                try:
+                    image = Image.open(uploaded_file)
+                except Exception as e:
+                    st.error(f"{uploaded_file.name} 파일 로드 오류: {e}")
+                    continue # 다음 파일로 넘어감
+                
+                # 2. Gemini 분석 호출
+                receipt_data = analyze_receipt_with_gemini(image)
+                
+                if not receipt_data or 'items' not in receipt_data:
+                    st.warning(f"⚠️ {uploaded_file.name}: 분석 결과를 얻지 못했습니다.")
+                    continue
+                
+                # 3. 데이터프레임 생성 및 금액 계산 (기존 로직 재활용)
+                items_df = pd.DataFrame(receipt_data['items'])
+                items_df['단가'] = pd.to_numeric(items_df['단가'], errors='coerce').fillna(0)
+                items_df['수량'] = pd.to_numeric(items_df['수량'], errors='coerce').fillna(1)
+                items_df['총 지출'] = items_df['단가'] * items_df['수량']
+                
+                # 4. 분석 결과 누적 저장
+                st.session_state.all_receipts_items.append(items_df)
+                
+                # 영수증별 요약 정보 저장
+                st.session_state.all_receipts_summary.append({
+                    '파일명': uploaded_file.name,
+                    '상호': receipt_data.get('store_name', 'N/A'),
+                    '총액': receipt_data.get('total_amount', 0),
+                    '통화': receipt_data.get('currency', 'N/A'),
+                    '날짜': receipt_data.get('date', 'N/A')
+                })
+                
+                # 분석 직후 개별 영수증 미리보기
+                st.subheader(f"✅ {uploaded_file.name} 분석 완료")
+                st.dataframe(items_df, use_container_width=True, hide_index=True)
+
+        st.success(f"🎉 총 {len(uploaded_files)}개의 영수증 분석이 완료되었습니다!")
+
+# --- 누적 데이터 분석 섹션 시작 ---
+if st.session_state.all_receipts_items:
+    st.markdown("---")
+    st.title("📚 누적된 전체 지출 분석 리포트")
+
+    # 1. 전체 품목 데이터프레임 생성
+    all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🖼️ 업로드된 영수증")
-        # 🚨 수정: use_column_width 대신 use_container_width 사용!
-        st.image(image, use_container_width=True) 
+    st.subheader("모든 영수증 품목 통합 데이터")
+    st.dataframe(all_items_df, use_container_width=True, hide_index=True)
+
+    # 2. 카테고리별 집계 (통합된 데이터 사용)
+    category_summary = all_items_df.groupby('AI 카테고리')['총 지출'].sum().reset_index()
+    category_summary.columns = ['카테고리', '금액']
     
-    with col2:
-        st.subheader("📊 분석 및 기록")
-        if st.button("✨ 영수증 분석 시작하기"):
-            with st.spinner('AI가 영수증을 꼼꼼히 읽고 있습니다...'):
-                # image 인자를 전달할 때 함수 정의에 맞게 이름은 그대로 사용합니다.
-                json_data_text = analyze_receipt_with_gemini(image)
-
-                if json_data_text:
-                    try:
-                        # 1. JSON 코드 블록만 추출하는 방어 로직 추가
-                        if json_data_text.startswith("```json"):
-                            # 응답이 코드 블록으로 시작하는 경우, 블록 내부만 추출
-                            json_data_text = json_data_text.strip().lstrip("```json").rstrip("```").strip()
-                        
-                        # 텍스트 응답을 JSON 객체로 파싱
-                        receipt_data = json.loads(json_data_text)
-
-                        # --- 통화 단위 추출 ---
-                        # 영수증에서 추출한 통화 단위를 변수에 저장합니다.
-                        #currency_unit = receipt_data.get('currency_unit', '원')
-                        currency_unit = receipt_data.get('currency_unit', '').strip()
-                        display_unit = currency_unit if currency_unit else '원'
-                        
-                        # --- 메인 정보 표시 ---
-                        st.success("✅ 분석 완료! 아래 가계부 데이터를 확인해 보세요.")
-                        
-                        # 메인 요약 정보를 표시
-                        st.markdown(f"**🏠 상호명:** {receipt_data.get('store_name', '정보 없음')}")
-                        st.markdown(f"**📅 날짜:** {receipt_data.get('date', '정보 없음')}")
-                        #st.subheader(f"💰 총 결제 금액: {receipt_data.get('total_amount', 0):,} 원")
-                        st.subheader(f"💰 총 결제 금액: {receipt_data.get('total_amount', 0):,} {display_unit}")
-                        st.markdown("---")
-
-                        # --- 품목별 데이터프레임 생성 ---
-                        if 'items' in receipt_data and receipt_data['items']:
-                            items_df = pd.DataFrame(receipt_data['items'])
-                            
-                            # 데이터프레임 컬럼 이름 변경 (사용자 친화적으로)
-                            items_df.columns = ['품목명', '단가', '수량', 'AI 카테고리']
-                            
-                            st.subheader("🛒 품목별 상세 내역")
-                            st.dataframe(items_df, use_container_width=True, hide_index=True)
-                            
-                            # --- 3. 데이터 다운로드 기능 추가 ---
-                            
-                            @st.cache_data
-                            def convert_df_to_csv(df):
-                                # DataFrame을 CSV 형식으로 변환 (인코딩: UTF-8-sig)
-                                return df.to_csv(index=False, encoding='utf-8-sig')
-
-                            csv = convert_df_to_csv(items_df)
-                            
-                            st.download_button(
-                                label="⬇️ 가계부 CSV 파일 다운로드",
-                                data=csv,
-                                file_name=f"{receipt_data.get('date', 'receipt')}_{receipt_data.get('store_name', 'data')}.csv",
-                                mime='text/csv',
-                            )
-                        else:
-                            st.warning("분석 결과에서 품목 리스트를 찾을 수 없습니다.")
-
-                    except json.JSONDecodeError:
-                        st.error("❌ Gemini 분석 결과가 올바른 JSON 형식이 아닙니다. 영수증 이미지를 더 선명하게 올려주세요.")
-                    except Exception as e:
-                        st.error(f"데이터 처리 중 예상치 못한 오류 발생: {e}")
-                else:
-                    st.error("분석을 완료하지 못했습니다. 다시 시도해 주세요.")
+    st.markdown("---")
+    st.subheader("💰 전체 누적 카테고리별 지출 요약")
+    st.dataframe(category_summary, use_container_width=True, hide_index=True)
+    st.bar_chart(category_summary.set_index('카테고리'))
+    
+    # 3. AI 분석 리포트 생성 (가장 큰 지출 카테고리와 총액 정보를 전달)
+    st.markdown("---")
+    st.subheader("🤖 AI 분석 전문가의 전체 지출 조언")
+    
+    # 누적 총 지출 금액 계산
+    total_spent = category_summary['금액'].sum()
+    
+    # AI 분석 함수 호출 (함수 정의는 기존대로 유지)
+    ai_report = generate_ai_analysis(
+        summary_df=category_summary,
+        store_name="다수 상점", # 다중 분석임을 명시
+        total_amount=total_spent
+    )
+    
+    st.info(ai_report)
+    
+    if st.button("🧹 기록 초기화"):
+        st.session_state.all_receipts_items = []
+        st.session_state.all_receipts_summary = []
+        st.experimental_rerun() # 앱을 새로고침하여 초기화된 상태를 반영
