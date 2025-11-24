@@ -1,0 +1,3 @@
+# packages.txt
+libheif-dev
+pkg-config
