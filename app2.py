@@ -274,12 +274,23 @@ if st.session_state.all_receipts_items:
     st.markdown("---")
     st.title("📚 Cumulative Spending Analysis Report")
 
-    # A. Display Accumulated Receipts Summary Table (NEW)
+    # A. Display Accumulated Receipts Summary Table
     st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
     summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
+    
     # Drop 'id' and reorder columns for presentation
     summary_df = summary_df.drop(columns=['id'])
-    summary_df = summary_df[['Date', 'Store', 'Total', 'Currency', 'filename']] 
+    
+    # ⭐️ NEW: Combine Total and Currency for better display ⭐️
+    # 1. Total 금액을 콤마가 포함된 문자열로 포맷
+    # 2. 포맷된 Total과 Currency를 합쳐 'Amount Paid' 컬럼 생성
+    summary_df['Total'] = summary_df['Total'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else 'N/A')
+    summary_df['Amount Paid'] = summary_df['Total'] + ' ' + summary_df['Currency']
+    
+    # 표시할 컬럼 선택 및 이름 변경
+    summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'filename']] 
+    summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Original File'] 
+
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     st.markdown("---")
