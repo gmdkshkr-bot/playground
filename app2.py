@@ -377,4 +377,4 @@ if st.session_state.all_receipts_items:
     if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
         st.session_state.all_receipts_items = []
         st.session_state.all_receipts_summary = []
-        st.experimental_rerun()
+        st.rerun()
