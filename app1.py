@@ -105,7 +105,7 @@ def analyze_receipt_with_gemini(_image: Image.Image): # image 앞에 언더바('
 # --- 2. Streamlit UI 및 로직 ---
 # app.py (기존 file_uploader 부분 수정)
 
-uploaded_file = st.file_uploader("📸 분석할 영수증 사진(jpg, png)을 업로드해 주세요.",
+uploaded_files = st.file_uploader("📸 분석할 영수증 사진(jpg, png)을 업로드해 주세요.",
                                  type=['jpg', 'png', 'jpeg'],
                                  accept_multiple_files=True # 다중 파일 허용
                                 )
