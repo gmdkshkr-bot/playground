@@ -310,6 +310,12 @@ with tab1:
                             st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
                             st.markdown(f"**📅 Date:** {receipt_data.get('date', 'N/A')}")
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
+                            
+                            # 💡 ADDED: Display Applied Exchange Rate for AI Analysis
+                            if display_unit != 'KRW':
+                                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
+                                st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
+                                
                             st.markdown("---")
 
 
@@ -345,7 +351,7 @@ with tab1:
                                 edited_df['KRW Total Spend'] = edited_df.apply(
                                     lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
                                 )
-                                edited_df = edited_df.drop(columns=['Total Spend Numeric'])
+                                edited_df = edited_df.drop(columns=['Total Spend Numeric']) # Remove temporary column
 
 
                                 # ** Accumulate Data: Store the edited DataFrame **
@@ -357,7 +363,7 @@ with tab1:
                                     'Total': edited_df['KRW Total Spend'].sum(), # Store KRW Total
                                     'Currency': 'KRW', # Standardize summary currency to KRW
                                     'Date': receipt_data.get('date', 'N/A'),
-                                    # 💡 NEW FIELDS: Store original values
+                                    # 💡 Store original values
                                     'Original_Total': total_amount, 
                                     'Original_Currency': display_unit 
                                 })
@@ -410,6 +416,7 @@ with tab1:
                 
                 # 📢 Currency Conversion for Manual Input
                 krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
+                applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0) # Get applied rate
 
                 # 1. Prepare Item DataFrame 
                 manual_df = pd.DataFrame([{
@@ -430,7 +437,7 @@ with tab1:
                     'Total': krw_total, # Store KRW Total
                     'Currency': 'KRW', # Standardize summary currency to KRW
                     'Date': manual_date.strftime('%Y-%m-%d'),
-                    # 💡 NEW FIELDS: Store original values
+                    # 💡 Store original values
                     'Original_Total': manual_amount, 
                     'Original_Currency': manual_currency 
                 }
@@ -439,7 +446,13 @@ with tab1:
                 st.session_state.all_receipts_items.append(manual_df)
                 st.session_state.all_receipts_summary.append(manual_summary)
                 
-                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} 지출 내역 ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**)이(가) 성공적으로 추가되었습니다.")
+                # 💡 MODIFIED SUCCESS MESSAGE: Include applied rate
+                if manual_currency != 'KRW':
+                    rate_info = f" (적용 환율: 1 {manual_currency} = {applied_rate:,.4f} KRW)"
+                else:
+                    rate_info = ""
+                    
+                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} 지출 내역 ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}이(가) 성공적으로 추가되었습니다.")
                 st.rerun()
             else:
                 st.error("❌ '지출 내역', '지출 금액', '분류'는 필수 항목입니다. 금액은 0보다 커야 합니다.")
@@ -467,27 +480,24 @@ with tab1:
         display_currency_label = 'KRW'
 
 
-        # A. Display Accumulated Receipts Summary Table (MODIFIED)
+        # A. Display Accumulated Receipts Summary Table
         st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
         summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
         
-        # 💡 NEW: Ensure compatibility with older sessions that lack Original_ columns
+        # Ensure compatibility with older sessions that lack Original_ columns
         if 'Original_Total' not in summary_df.columns:
             summary_df['Original_Total'] = summary_df['Total'] 
         if 'Original_Currency' not in summary_df.columns:
             summary_df['Original_Currency'] = 'KRW' 
             
-        # 📢 Conditional formatting for Amount Paid
+        # Conditional formatting for Amount Paid
         def format_amount_paid(row):
-            # KRW 금액 포맷팅
             krw_amount = f"{row['Total']:,.0f} KRW"
             
-            # 원 통화가 KRW가 아닌 경우 (외화 거래인 경우) 병렬 표기
             if row['Original_Currency'] != 'KRW':
                 original_amount = f"{row['Original_Total']:,.2f} {row['Original_Currency']}"
                 return f"{original_amount} / {krw_amount}"
             
-            # 원화 거래인 경우 KRW 금액만 표기
             return krw_amount
         
         summary_df['Amount Paid'] = summary_df.apply(format_amount_paid, axis=1)
@@ -503,7 +513,6 @@ with tab1:
         
         st.subheader("🛒 Integrated Detail Items") 
         
-        # ... (Integrated Detail Items remains the same as it already displays parallel info)
         all_items_df_display = all_items_df_numeric.copy()
         
         all_items_df_display['Original Total'] = all_items_df_display.apply(
