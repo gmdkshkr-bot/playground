@@ -6,16 +6,15 @@ import io
 import datetime 
 import numpy as np
 import plotly.express as px
-import requests # 📢 requests 라이브러리 추가
+import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 
 # ----------------------------------------------------------------------
-# 📌 0. Currency Conversion Setup (MODIFIED FOR API)
+# 📌 0. Currency Conversion Setup 
 # ----------------------------------------------------------------------
 
 try:
-    # 📢 API Key를 Streamlit Secrets에서 로드합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
     EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
 except KeyError:
@@ -30,16 +29,10 @@ client = genai.Client(api_key=API_KEY)
 def get_exchange_rates():
     """
     ExchangeRate-API를 사용하여 실시간 환율 정보를 가져옵니다. 
-    (Returns: {'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20, 'KRW': 1.0})
     """
     
-    # 💡 USD를 기준 통화(Base Currency)로 설정하여 요청합니다.
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
-    
-    # KRW는 기본 통화이므로 1.0으로 초기화
     exchange_rates = {'KRW': 1.0} 
-    
-    # 폴백(Fallback) 환율: API 요청 실패 시 사용
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20}
 
     try:
@@ -48,24 +41,17 @@ def get_exchange_rates():
         data = response.json()
         
         conversion_rates = data.get('conversion_rates', {})
-        
-        # 1. KRW/USD 환율 확보 (API 응답에서 1 USD = X KRW 값을 직접 가져옴)
         krw_per_usd = conversion_rates.get('KRW', 0)
         
         if krw_per_usd == 0 or data.get('result') != 'success':
              raise ValueError("API returned incomplete or failed data.")
 
-        # 2. 주요 통화에 대한 '1 외화 단위 = X KRW' 환율 계산
-        
-        # USD: 1 USD = X KRW
         exchange_rates['USD'] = krw_per_usd 
         
-        # EUR: 1 EUR = (1 / EUR/USD 환율) * KRW/USD 환율
         eur_rate_vs_usd = conversion_rates.get('EUR', 0)
         if eur_rate_vs_usd > 0:
             exchange_rates['EUR'] = krw_per_usd / eur_rate_vs_usd
         
-        # JPY: 1 JPY = (1 / JPY/USD 환율) * KRW/USD 환율
         jpy_rate_vs_usd = conversion_rates.get('JPY', 0)
         if jpy_rate_vs_usd > 0:
             exchange_rates['JPY'] = krw_per_usd / jpy_rate_vs_usd
@@ -154,11 +140,12 @@ st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
 st.markdown("---")
 
 
+# --- 0. Client Initialization ---
 # 📢 Fetch rates once at app startup
 EXCHANGE_RATES = get_exchange_rates()
 
 
-# --- 1. Gemini Analysis Function ---
+# --- 1. Gemini Analysis Function (omitted for brevity) ---
 def analyze_receipt_with_gemini(_image: Image.Image):
     """
     Calls the Gemini model to extract data and categorize items from a receipt image.
@@ -205,7 +192,6 @@ def analyze_receipt_with_gemini(_image: Image.Image):
             model='gemini-2.5-flash',
             contents=[prompt_template, _image],
             config=genai.types.GenerateContentConfig(
-                # Safety filter configuration
                 safety_settings=[
                     {"category": HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
                 ]
@@ -217,7 +203,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         st.error(f"Gemini API call failed: {e}")
         return None
 
-# --- 2. AI Analysis Report Generation Function ---
+# --- 2. AI Analysis Report Generation Function (omitted for brevity) ---
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
     """
     Generates an AI analysis report based on aggregated spending data and detailed items.
@@ -353,13 +339,13 @@ with tab1:
                                     use_container_width=True
                                 )
                                 
-                                # 📢 Currency Conversion for Accumulation
+                                # 📢 Currency Conversion for Accumulation (AI Analysis)
                                 edited_df['Currency'] = display_unit
                                 edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
                                 edited_df['KRW Total Spend'] = edited_df.apply(
                                     lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
                                 )
-                                edited_df = edited_df.drop(columns=['Total Spend Numeric']) # Remove temporary column
+                                edited_df = edited_df.drop(columns=['Total Spend Numeric'])
 
 
                                 # ** Accumulate Data: Store the edited DataFrame **
@@ -370,7 +356,10 @@ with tab1:
                                     'Store': receipt_data.get('store_name', 'N/A'),
                                     'Total': edited_df['KRW Total Spend'].sum(), # Store KRW Total
                                     'Currency': 'KRW', # Standardize summary currency to KRW
-                                    'Date': receipt_data.get('date', 'N/A')
+                                    'Date': receipt_data.get('date', 'N/A'),
+                                    # 💡 NEW FIELDS: Store original values
+                                    'Original_Total': total_amount, 
+                                    'Original_Currency': display_unit 
                                 })
 
                                 st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
@@ -430,7 +419,7 @@ with tab1:
                     'AI Category': manual_category,
                     'Total Spend': manual_amount,
                     'Currency': manual_currency,
-                    'KRW Total Spend': krw_total # 💡 NEW COLUMN
+                    'KRW Total Spend': krw_total 
                 }])
                 
                 # 2. Prepare Summary Data
@@ -440,7 +429,10 @@ with tab1:
                     'Store': manual_store if manual_store else '수동 입력',
                     'Total': krw_total, # Store KRW Total
                     'Currency': 'KRW', # Standardize summary currency to KRW
-                    'Date': manual_date.strftime('%Y-%m-%d')
+                    'Date': manual_date.strftime('%Y-%m-%d'),
+                    # 💡 NEW FIELDS: Store original values
+                    'Original_Total': manual_amount, 
+                    'Original_Currency': manual_currency 
                 }
                 
                 # 3. Accumulate Data
@@ -475,11 +467,33 @@ with tab1:
         display_currency_label = 'KRW'
 
 
-        # A. Display Accumulated Receipts Summary Table
+        # A. Display Accumulated Receipts Summary Table (MODIFIED)
         st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
         summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
+        
+        # 💡 NEW: Ensure compatibility with older sessions that lack Original_ columns
+        if 'Original_Total' not in summary_df.columns:
+            summary_df['Original_Total'] = summary_df['Total'] 
+        if 'Original_Currency' not in summary_df.columns:
+            summary_df['Original_Currency'] = 'KRW' 
+            
+        # 📢 Conditional formatting for Amount Paid
+        def format_amount_paid(row):
+            # KRW 금액 포맷팅
+            krw_amount = f"{row['Total']:,.0f} KRW"
+            
+            # 원 통화가 KRW가 아닌 경우 (외화 거래인 경우) 병렬 표기
+            if row['Original_Currency'] != 'KRW':
+                original_amount = f"{row['Original_Total']:,.2f} {row['Original_Currency']}"
+                return f"{original_amount} / {krw_amount}"
+            
+            # 원화 거래인 경우 KRW 금액만 표기
+            return krw_amount
+        
+        summary_df['Amount Paid'] = summary_df.apply(format_amount_paid, axis=1)
+
+        
         summary_df = summary_df.drop(columns=['id'])
-        summary_df['Amount Paid'] = summary_df['Total'].apply(lambda x: f"{x:,.0f}") + ' ' + summary_df['Currency']
         summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'filename']] 
         summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Source'] 
 
@@ -489,6 +503,7 @@ with tab1:
         
         st.subheader("🛒 Integrated Detail Items") 
         
+        # ... (Integrated Detail Items remains the same as it already displays parallel info)
         all_items_df_display = all_items_df_numeric.copy()
         
         all_items_df_display['Original Total'] = all_items_df_display.apply(
@@ -504,7 +519,7 @@ with tab1:
             hide_index=True
         )
 
-        # 2. Aggregate spending by category and visualize
+        # 2. Aggregate spending by category and visualize (KRW based)
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
