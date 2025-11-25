@@ -153,6 +153,11 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     --- Spending Summary Data ---
     {summary_text}
     ---
+
+    **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+    --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
+    {detailed_items_text}
+    ---
     
     Follow these instructions and provide an analysis report in a friendly and professional tone:
     1. Summarize the main characteristic of this total spending (e.g., the largest spending category) in one sentence.
@@ -425,15 +430,21 @@ with tab1:
         # 3. Generate AI Analysis Report (for main analysis summary)
         st.markdown("---")
         st.subheader("🤖 AI Expert's Analysis Summary")
+
+        # 💡 새로운 변수 준비: 분석에 필요한 핵심 항목만 추출합니다.
+        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'Total Spend']]
+        items_text = detailed_items_for_ai.to_string(index=False) # 텍스트로 변환
         
         total_spent = category_summary['Amount'].sum()
+        display_currency_label = all_items_df_numeric['Currency'].iloc[-1] if not all_items_df_numeric.empty else 'KRW'
         
         # 💡 Passed the currency unit to the analysis function
         ai_report = generate_ai_analysis(
             summary_df=category_summary,
             store_name="Multiple Stores",
             total_amount=total_spent,
-            currency_unit=display_currency_label 
+            currency_unit=display_currency_label,
+            detailed_items_text=items_text # 👈 새 파라미터 추가!
         )
         
         st.info(ai_report)
