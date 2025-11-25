@@ -347,6 +347,18 @@ with tab1:
         
         # 1. Create a single DataFrame from all accumulated items
         all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+
+        # 🚀 SOLUTION: Defensive coding to ensure 'Currency' column exists for all items
+        # If data from previous sessions or before code update exists, 'Currency' might be missing.
+        if 'Currency' not in all_items_df_numeric.columns:
+            # Use the currency of the last uploaded receipt, or default to 'KRW'
+            default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
+    
+            # 💡 모든 항목에 빠짐없이 'Currency' 컬럼을 추가하고 기본값으로 채웁니다.
+            all_items_df_numeric['Currency'] = default_currency 
+        # -------------------------------------------------------------------------------
+        # 이 아래부터는 'Currency' 컬럼이 반드시 존재함을 보장합니다.
+
         
         st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
         
@@ -367,6 +379,7 @@ with tab1:
 
         # 2. Aggregate spending by category and visualize
         # Use the numeric DataFrame for aggregation
+        
         category_summary = all_items_df_numeric.groupby('AI Category')['Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
