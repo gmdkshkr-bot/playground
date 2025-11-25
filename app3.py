@@ -19,21 +19,11 @@ def get_exchange_rates():
     """
     Fetches approximate exchange rates for key foreign currencies against KRW using Google Search.
     Returns a dictionary: {currency_code: KRW_equivalent}
-    
-    NOTE: In a real production environment, a dedicated, reliable API (like Exchangerate-API or Open Exchange Rates) 
-    should be used instead of Google Search for real-time rates. This implementation uses Google Search 
-    for demonstration within the tool-enabled context, but relies on hardcoded fallbacks 
-    due to the complexity of reliably parsing search results.
     """
     target_currencies = ['USD', 'EUR', 'JPY']
     exchange_rates = {'KRW': 1.0} 
 
     try:
-        # Use Google Search Tool to find rates 
-        # (This is a conceptual call; the parsing logic is complex and skipped here.)
-        # queries = [f"1 {currency} to KRW exchange rate" for currency in target_currencies]
-        # search_results = google_search(queries=queries) # Conceptual search tool call
-        
         # Fallback/Simulated Rates (1 Foreign Unit = X KRW)
         rates_map = {
             'USD': 1350.00, 
@@ -112,7 +102,6 @@ with st.sidebar:
     3. **Analyze & Accumulate:** Results are added to the cumulative record.
     4. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
     """)
-    # ... (APIs Used section omitted for brevity, but kept in concept) ...
     
     st.markdown("---")
     if st.session_state.all_receipts_items:
@@ -141,7 +130,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     """
     Calls the Gemini model to extract data and categorize items from a receipt image.
     """
-    # ... (Prompt remains the same as before, ensuring JSON output) ...
+    
     prompt_template = """
     You are an expert in receipt analysis and ledger recording.
     Analyze the following items from the receipt image and **you must extract them in JSON format**.
@@ -197,7 +186,9 @@ def analyze_receipt_with_gemini(_image: Image.Image):
 
 # --- 2. AI Analysis Report Generation Function ---
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
-    # ... (Function body remains the same, accepting detailed data and KRW amounts) ...
+    """
+    Generates an AI analysis report based on aggregated spending data and detailed items.
+    """
     summary_text = summary_df.to_string(index=False)
     
     prompt_template = f"""
@@ -443,18 +434,15 @@ with tab1:
         
         # Defensive coding: KRW Total Spend must exist for analysis
         if 'KRW Total Spend' not in all_items_df_numeric.columns:
-             # Fallback: recalculate if column is missing (e.g., old data structure)
              st.warning("Old data structure detected. Recalculating KRW totals...")
              all_items_df_numeric['KRW Total Spend'] = all_items_df_numeric.apply(
                  lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
              )
 
-        # Analysis is now KRW-centric
         display_currency_label = 'KRW'
 
 
-        # A. Display Accumulated Receipts Summary Table (Summary is now KRW based)
-        # ... (Code block remains the same, but data uses KRW Total)
+        # A. Display Accumulated Receipts Summary Table
         st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
         summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
         summary_df = summary_df.drop(columns=['id'])
@@ -466,12 +454,10 @@ with tab1:
         
         st.markdown("---")
         
-        st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
+        st.subheader("🛒 Integrated Detail Items") 
         
-        # Create a display version showing original currency AND KRW equivalent
         all_items_df_display = all_items_df_numeric.copy()
         
-        # Display the foreign amount and the KRW equivalent
         all_items_df_display['Original Total'] = all_items_df_display.apply(
             lambda row: f"{row['Total Spend']:,.2f} {row['Currency']}", axis=1
         )
@@ -486,7 +472,6 @@ with tab1:
         )
 
         # 2. Aggregate spending by category and visualize
-        # Use the 'KRW Total Spend' column for ALL aggregation
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
@@ -527,7 +512,7 @@ with tab1:
         if not summary_df_raw.empty:
             
             summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
-            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') # Total is now KRW Total
+            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
             
             daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
             daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
@@ -557,7 +542,7 @@ with tab1:
             summary_df=category_summary,
             store_name="Multiple Stores",
             total_amount=total_spent,
-            currency_unit=display_currency_label, # Pass KRW
+            currency_unit=display_currency_label, 
             detailed_items_text=items_text
         )
         
@@ -584,7 +569,7 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-#             TAB 2: FINANCIAL EXPERT CHAT
+#             TAB 2: FINANCIAL EXPERT CHAT (MODIFIED)
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
@@ -594,8 +579,9 @@ with tab2:
     else:
         # Chat uses KRW-based analysis data
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
+        # Defensive check for KRW Total Spend column
         if 'KRW Total Spend' not in all_items_df.columns:
-             # Recalculate if column is missing (should not happen after this fix)
              all_items_df['KRW Total Spend'] = all_items_df.apply(
                  lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
              )
@@ -603,8 +589,13 @@ with tab2:
         category_summary = all_items_df.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         total_spent = category_summary['KRW Total Spend'].sum()
         summary_text = category_summary.to_string(index=False)
-        display_currency_label_chat = 'KRW' # Chat is now fixed to KRW
+        display_currency_label_chat = 'KRW'
         
+        # 📢 NEW: Prepare detailed item data for the chatbot's system instruction
+        detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
+        items_text_for_chat = detailed_items_for_chat.to_string(index=False)
+        
+        # 📢 MODIFIED SYSTEM INSTRUCTION
         system_instruction = f"""
         You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
         
@@ -613,7 +604,12 @@ with tab2:
         - Category Breakdown (Category, Amount, all in {display_currency_label_chat}):
         {summary_text}
         
-        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns. Keep your tone professional yet encouraging. **Always include the currency unit (KRW) when referring to monetary amounts.**
+        **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+        --- Detailed Items Data (AI Category, Item Name, KRW Total Spend) ---
+        {items_text_for_chat}
+        ---
+
+        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). Keep your tone professional yet encouraging. **Always include the currency unit (KRW) when referring to monetary amounts.**
         """
 
         # Display chat history
