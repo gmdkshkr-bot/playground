@@ -5,44 +5,87 @@ from PIL import Image
 import io
 import datetime 
 import numpy as np
-import plotly.express as px # Plotly for interactive Pie Chart
+import plotly.express as px
+import requests # 📢 requests 라이브러리 추가
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 
 # ----------------------------------------------------------------------
-# 📌 0. Currency Conversion Setup
+# 📌 0. Currency Conversion Setup (MODIFIED FOR API)
 # ----------------------------------------------------------------------
 
-# --- Currency Exchange Rate Retrieval ---
+try:
+    # 📢 API Key를 Streamlit Secrets에서 로드합니다.
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+except KeyError:
+    st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
+    st.stop()
+
+# Initialize GenAI client
+client = genai.Client(api_key=API_KEY)
+
+
 @st.cache_data
 def get_exchange_rates():
     """
-    Fetches approximate exchange rates for key foreign currencies against KRW using Google Search.
-    Returns a dictionary: {currency_code: KRW_equivalent}
+    ExchangeRate-API를 사용하여 실시간 환율 정보를 가져옵니다. 
+    (Returns: {'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20, 'KRW': 1.0})
     """
-    target_currencies = ['USD', 'EUR', 'JPY']
+    
+    # 💡 USD를 기준 통화(Base Currency)로 설정하여 요청합니다.
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
+    
+    # KRW는 기본 통화이므로 1.0으로 초기화
     exchange_rates = {'KRW': 1.0} 
+    
+    # 폴백(Fallback) 환율: API 요청 실패 시 사용
+    FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20}
 
     try:
-        # Fallback/Simulated Rates (1 Foreign Unit = X KRW)
-        rates_map = {
-            'USD': 1350.00, 
-            'EUR': 1450.00, 
-            'JPY': 9.20     
-        }
+        response = requests.get(url, timeout=10)
+        response.raise_for_status() 
+        data = response.json()
         
-        for currency, rate in rates_map.items():
-            exchange_rates[currency] = rate
+        conversion_rates = data.get('conversion_rates', {})
+        
+        # 1. KRW/USD 환율 확보 (API 응답에서 1 USD = X KRW 값을 직접 가져옴)
+        krw_per_usd = conversion_rates.get('KRW', 0)
+        
+        if krw_per_usd == 0 or data.get('result') != 'success':
+             raise ValueError("API returned incomplete or failed data.")
+
+        # 2. 주요 통화에 대한 '1 외화 단위 = X KRW' 환율 계산
+        
+        # USD: 1 USD = X KRW
+        exchange_rates['USD'] = krw_per_usd 
+        
+        # EUR: 1 EUR = (1 / EUR/USD 환율) * KRW/USD 환율
+        eur_rate_vs_usd = conversion_rates.get('EUR', 0)
+        if eur_rate_vs_usd > 0:
+            exchange_rates['EUR'] = krw_per_usd / eur_rate_vs_usd
+        
+        # JPY: 1 JPY = (1 / JPY/USD 환율) * KRW/USD 환율
+        jpy_rate_vs_usd = conversion_rates.get('JPY', 0)
+        if jpy_rate_vs_usd > 0:
+            exchange_rates['JPY'] = krw_per_usd / jpy_rate_vs_usd
+            
+        st.sidebar.success(f"✅ Real-time rates loaded. (1 USD = {krw_per_usd:,.2f} KRW)")
 
         return exchange_rates
+
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ 환율 API 요청 오류가 발생했습니다. 폴백 환율을 사용합니다. ({e})")
+        return FALLBACK_RATES
         
     except Exception as e:
-        st.warning(f"Failed to fetch real-time exchange rates. Using fallback rates. Error: {e}")
-        return {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20}
+        st.warning(f"⚠️ 환율 데이터 처리 오류 발생. 폴백 환율을 사용합니다. ({e})")
+        return FALLBACK_RATES
+
 
 # --- Currency Conversion Helper Function ---
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
-    """ Converts a foreign currency amount to KRW using stored rates. """
+    """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
     rate = rates.get(currency_upper, rates.get('KRW', 1.0))
     return amount * rate
@@ -110,16 +153,6 @@ with st.sidebar:
 st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
 st.markdown("---")
 
-
-# --- 0. API Key Configuration & Client Initialization ---
-try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY' in Streamlit Secrets.")
-    st.stop()
-
-# Initialize GenAI client
-client = genai.Client(api_key=API_KEY)
 
 # 📢 Fetch rates once at app startup
 EXCHANGE_RATES = get_exchange_rates()
@@ -569,7 +602,7 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-#             TAB 2: FINANCIAL EXPERT CHAT (MODIFIED)
+#             TAB 2: FINANCIAL EXPERT CHAT
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
@@ -591,11 +624,11 @@ with tab2:
         summary_text = category_summary.to_string(index=False)
         display_currency_label_chat = 'KRW'
         
-        # 📢 NEW: Prepare detailed item data for the chatbot's system instruction
+        # Prepare detailed item data for the chatbot's system instruction
         detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
-        # 📢 MODIFIED SYSTEM INSTRUCTION
+        # MODIFIED SYSTEM INSTRUCTION
         system_instruction = f"""
         You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
         
