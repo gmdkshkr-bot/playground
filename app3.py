@@ -177,6 +177,15 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 
 tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 
+# Define all possible categories for the data_editor Selectbox
+all_categories = [
+    "외식", "식재료", "카페/음료", "주류", 
+    "생필품", "의료/건강", "교육/서적", "통신", "공과금",
+    "대중교통", "유류비", "택시", "주차비", 
+    "영화/공연", "여행", "취미", "게임", 
+    "경조사", "이체/수수료", "비상금", "미분류"
+]
+
 
 # ======================================================================
 #             TAB 1: ANALYSIS & TRACKING
@@ -262,14 +271,6 @@ with tab1:
                                 st.subheader("🛒 Detailed Item Breakdown (Category Editable)")
                                 
                                 # Use st.data_editor to allow users to modify the 'AI Category' field
-                                all_categories = [
-                                    "외식", "식재료", "카페/음료", "주류", 
-                                    "생필품", "의료/건강", "교육/서적", "통신", "공과금",
-                                    "대중교통", "유류비", "택시", "주차비", 
-                                    "영화/공연", "여행", "취미", "게임", 
-                                    "경조사", "이체/수수료", "비상금", "미분류"
-                                ]
-                                
                                 edited_df = st.data_editor(
                                     items_df,
                                     column_config={
@@ -286,6 +287,9 @@ with tab1:
                                     use_container_width=True
                                 )
                                 
+                                # 📢 Add Currency column to the edited_df before accumulation
+                                edited_df['Currency'] = display_unit
+
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
                                 st.session_state.all_receipts_summary.append({
@@ -317,6 +321,10 @@ with tab1:
     if st.session_state.all_receipts_items:
         st.markdown("---")
         st.title("📚 Cumulative Spending Analysis Report")
+        
+        # 📢 Get the currency unit of the last receipt for consistent labeling in the cumulative report
+        display_currency_label = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
+
 
         # A. Display Accumulated Receipts Summary Table
         st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
@@ -338,30 +346,50 @@ with tab1:
         st.markdown("---")
         
         # 1. Create a single DataFrame from all accumulated items
-        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
         st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
-        st.dataframe(all_items_df[['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend']], use_container_width=True, hide_index=True)
+        
+        # 📢 Create a display version to show currency unit next to monetary values
+        all_items_df_display = all_items_df_numeric.copy()
+        all_items_df_display['Unit Price'] = all_items_df_display.apply(
+            lambda row: f"{row['Unit Price']:,.0f} {row['Currency']}" if pd.notnull(row['Unit Price']) else f"N/A {row['Currency']}", axis=1
+        )
+        all_items_df_display['Total Spend'] = all_items_df_display.apply(
+            lambda row: f"{row['Total Spend']:,.0f} {row['Currency']}" if pd.notnull(row['Total Spend']) else f"N/A {row['Currency']}", axis=1
+        )
+        
+        st.dataframe(
+            all_items_df_display[['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend']], 
+            use_container_width=True, 
+            hide_index=True
+        )
 
         # 2. Aggregate spending by category and visualize
-        category_summary = all_items_df.groupby('AI Category')['Total Spend'].sum().reset_index()
+        # Use the numeric DataFrame for aggregation
+        category_summary = all_items_df_numeric.groupby('AI Category')['Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
         # --- Display Summary Table ---
         st.subheader("💰 Spending Summary by Category")
-        st.dataframe(category_summary, use_container_width=True, hide_index=True)
+        
+        # 📢 Format the Amount column for display with currency unit
+        category_summary_display = category_summary.copy()
+        category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
+        
+        st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
 
         # --- Visualization ---
         
         col_chart, col_pie = st.columns(2)
         
         with col_chart:
-            st.subheader("Bar Chart Visualization")
-            # Bar Chart
+            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})") # 📢 Updated subtitle
+            # Bar Chart (uses numeric category_summary)
             st.bar_chart(category_summary.set_index('Category'))
             
         with col_pie:
-            st.subheader("Pie Chart Visualization")
+            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})") # 📢 Updated subtitle
             # Pie Chart using Plotly Express for better visualization
             
             # Ensure only positive amounts are included in the chart
@@ -372,7 +400,7 @@ with tab1:
                     chart_data, 
                     values='Amount', 
                     names='Category', 
-                    title='Spending Distribution by Category',
+                    title=f'Spending Distribution by Category (Unit: {display_currency_label})', # 📢 Updated title
                     # Set hole for a donut chart appearance
                     hole=.3, 
                 )
@@ -408,7 +436,7 @@ with tab1:
             # Convert the entire DataFrame to CSV format (UTF-8-sig encoding for compatibility)
             return df.to_csv(index=False, encoding='utf-8-sig')
 
-        csv = convert_df_to_csv(all_items_df)
+        csv = convert_df_to_csv(all_items_df_numeric) # Use the numeric dataframe for CSV download
         
         st.download_button(
             label="⬇️ Download Full Cumulative Ledger Data (CSV)",
