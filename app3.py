@@ -9,6 +9,7 @@ from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 import numpy as np
 import plotly.express as px # Plotly for interactive Pie Chart
+import datetime # Import datetime for manual input date
 
 # ----------------------------------------------------------------------
 # 📌 1. Initialize session state for cumulative receipt data & chat history
@@ -42,8 +43,8 @@ with st.sidebar:
     st.markdown("""
     This application helps you manage your household ledger easily by using AI.
     1. **Upload:** Upload one receipt image (JPG, PNG) at a time.
-    2. **Analyze:** Click 'Start Receipt Analysis' to extract store, date, items, and total amount.
-    3. **Accumulate:** The results are automatically added to the cumulative record.
+    2. **Manual Input:** If you don't have a receipt, manually enter the expense details.
+    3. **Analyze & Accumulate:** The results are automatically added to the cumulative record.
     4. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice from the Chatbot.
     """)
     
@@ -182,7 +183,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 
 tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 
-# Define all possible categories for the data_editor Selectbox
+# Define all possible categories for the data_editor Selectbox and Manual Input
 all_categories = [
     "외식", "식재료", "카페/음료", "주류", 
     "생필품", "의료/건강", "교육/서적", "통신", "공과금",
@@ -191,6 +192,20 @@ all_categories = [
     "경조사", "이체/수수료", "비상금", "미분류"
 ]
 
+# Helper function to generate sub-category guide text
+def get_category_guide():
+    guide = ""
+    categories = {
+        "음식 (Food)": ["외식", "식재료", "카페/음료", "주류"],
+        "가계 (Household)": ["생필품", "의료/건강", "교육/서적", "통신", "공과금"],
+        "교통 (Transport)": ["대중교통", "유류비", "택시", "주차비"],
+        "문화 (Culture)": ["영화/공연", "여행", "취미", "게임"],
+        "기타 (Other)": ["경조사", "이체/수수료", "비상금", "미분류"],
+    }
+    for main, subs in categories.items():
+        guide += f"- **{main}**: {', '.join(subs)}\n"
+    return guide
+
 
 # ======================================================================
 #             TAB 1: ANALYSIS & TRACKING
@@ -198,8 +213,9 @@ all_categories = [
 with tab1:
     
     # 1. File Uploader (Single file mode)
+    st.subheader("📸 영수증 사진 업로드 (AI 분석)")
     uploaded_file = st.file_uploader(
-        "📸 Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
+        "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
         type=['jpg', 'png', 'jpeg'],
         accept_multiple_files=False 
     )
@@ -303,7 +319,7 @@ with tab1:
                                     'Store': receipt_data.get('store_name', 'N/A'),
                                     'Total': total_amount,
                                     'Currency': display_unit,
-                                    'Date': receipt_data.get('date', 'N/A') # Ensure Date is stored in summary
+                                    'Date': receipt_data.get('date', 'N/A')
                                 })
 
                                 st.success(f"🎉 Data from {uploaded_file.name} successfully added to the cumulative record!")
@@ -318,200 +334,271 @@ with tab1:
                     else:
                         st.error("Analysis failed to complete. Please try again.")
 
-
-# ----------------------------------------------------------------------
-# --- 5. Cumulative Data Analysis Section (Always displayed if data exists) ---
-# ----------------------------------------------------------------------
-
-if st.session_state.all_receipts_items:
-    st.markdown("---")
-    st.title("📚 Cumulative Spending Analysis Report")
-    
-    # 1. Create a single DataFrame from all accumulated items
-    all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
-    
-    # SOLUTION FOR KEY ERROR: Defensive coding to ensure 'Currency' column exists
-    if 'Currency' not in all_items_df_numeric.columns:
-        default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
-        all_items_df_numeric['Currency'] = default_currency
-    
-    # Get the currency unit for consistent labeling
-    display_currency_label = all_items_df_numeric['Currency'].iloc[-1] if not all_items_df_numeric.empty else 'KRW'
-
-
-    # A. Display Accumulated Receipts Summary Table
-    st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
-    summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
-    
-    # Drop 'id' and reorder columns for presentation
-    summary_df = summary_df.drop(columns=['id'])
-    
-    # ⭐️ Combine Total and Currency for better display ⭐️
-    summary_df['Total'] = summary_df['Total'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else 'N/A')
-    summary_df['Amount Paid'] = summary_df['Total'] + ' ' + summary_df['Currency']
-    
-    # Select columns to display
-    summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'filename']] 
-    summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Original File'] 
-
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
     st.markdown("---")
     
-    st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
+    # ----------------------------------------------------------------------
+    # --- NEW SECTION: Manual Expense Input ---
+    # ----------------------------------------------------------------------
+    st.subheader("📝 수동 지출 입력 (영수증이 없을 때)")
     
-    # Create a display version to show currency unit next to monetary values
-    all_items_df_display = all_items_df_numeric.copy()
-    all_items_df_display['Unit Price'] = all_items_df_display.apply(
-        lambda row: f"{row['Unit Price']:,.0f} {row['Currency']}" if pd.notnull(row['Unit Price']) else f"N/A {row['Currency']}", axis=1
-    )
-    all_items_df_display['Total Spend'] = all_items_df_display.apply(
-        lambda row: f"{row['Total Spend']:,.0f} {row['Currency']}" if pd.notnull(row['Total Spend']) else f"N/A {row['Currency']}", axis=1
-    )
+    st.info("""
+    **✅ 입력 가이드**
+    지출 내역을 간편하게 기록해 보세요. 다음 4가지 정보를 입력해야 합니다.
+    - **지출 내역:** 무엇을 샀는지 (예: 점심 식사, 마트 장보기)
+    - **사용처:** 어디서 썼는지 (예: OO 식당, 편의점)
+    - **지출 금액:** 총 사용 금액
+    - **분류 (필수):** 가장 적절한 **소분류**를 선택하세요.
     
-    st.dataframe(
-        all_items_df_display[['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend']], 
-        use_container_width=True, 
-        hide_index=True
+    **💡 분류 체계 (소분류)**
+    """ + get_category_guide()
     )
 
-    # 2. Aggregate spending by category and visualize
-    # Use the numeric DataFrame for aggregation
-    category_summary = all_items_df_numeric.groupby('AI Category')['Total Spend'].sum().reset_index()
-    category_summary.columns = ['Category', 'Amount']
-    
-    # --- Display Summary Table ---
-    st.subheader("💰 Spending Summary by Category")
-    
-    # Format the Amount column for display with currency unit
-    category_summary_display = category_summary.copy()
-    category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
-    
-    st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
-
-    # --- Visualization (Bar and Pie Charts) ---
-    
-    col_chart, col_pie = st.columns(2)
-    
-    with col_chart:
-        st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})")
-        # Bar Chart (uses numeric category_summary)
-        st.bar_chart(category_summary.set_index('Category'))
+    with st.form("manual_expense_form", clear_on_submit=True):
+        col_m1, col_m2, col_m3 = st.columns(3)
         
-    with col_pie:
-        st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})")
-        # Pie Chart using Plotly Express for better visualization
-        
-        # Ensure only positive amounts are included in the chart
-        chart_data = category_summary[category_summary['Amount'] > 0] 
-        
-        if not chart_data.empty:
-            fig = px.pie(
-                chart_data, 
-                values='Amount', 
-                names='Category', 
-                title=f'Spending Distribution by Category (Unit: {display_currency_label})',
-                # Set hole for a donut chart appearance
-                hole=.3, 
-            )
-            # Update layout for better appearance
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+        with col_m1:
+            manual_date = st.date_input("📅 지출 날짜", value=datetime.date.today())
+            manual_description = st.text_input("📝 지출 내역 (상품명)", placeholder="예: 점심 식사, 커피")
             
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("No spending data found to generate the pie chart.")
+        with col_m2:
+            manual_store = st.text_input("🏠 사용처 (가게 이름)", placeholder="예: OO 식당, 스타벅스")
+            manual_amount = st.number_input("💰 지출 금액 (숫자만)", min_value=0, step=100)
+            
+        with col_m3:
+            manual_category = st.selectbox("📌 분류 (소분류)", options=all_categories, index=all_categories.index('미분류'))
+            manual_currency = st.selectbox("환율 단위", options=['KRW', 'USD', 'EUR'], index=0)
+            
+        submitted = st.form_submit_button("✅ 가계부에 추가")
 
-    # --- NEW SECTION: Spending Trend Over Time Chart (Date conversion fix applied) ---
+        if submitted:
+            if manual_description and manual_amount > 0 and manual_category:
+                
+                # 1. Prepare Item DataFrame (Matches the structure of the AI analysis output)
+                manual_df = pd.DataFrame([{
+                    'Item Name': manual_description,
+                    'Unit Price': manual_amount, # For manual entry, Unit Price = Total Spend
+                    'Quantity': 1,
+                    'AI Category': manual_category,
+                    'Total Spend': manual_amount,
+                    'Currency': manual_currency
+                }])
+                
+                # 2. Prepare Summary Data
+                manual_summary = {
+                    'id': f"manual-{pd.Timestamp.now().timestamp()}", # Unique ID
+                    'filename': 'Manual Entry',
+                    'Store': manual_store if manual_store else '수동 입력',
+                    'Total': manual_amount,
+                    'Currency': manual_currency,
+                    'Date': manual_date.strftime('%Y-%m-%d')
+                }
+                
+                # 3. Accumulate Data
+                st.session_state.all_receipts_items.append(manual_df)
+                st.session_state.all_receipts_summary.append(manual_summary)
+                
+                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} 지출 내역 ({manual_description}: {manual_amount:,.0f} {manual_currency})이(가) 성공적으로 추가되었습니다.")
+                st.rerun()
+            else:
+                st.error("❌ '지출 내역', '지출 금액', '분류'는 필수 항목입니다. 금액은 0보다 커야 합니다.")
+
     st.markdown("---")
-    st.subheader("📈 Spending Trend Over Time")
-    
-    summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
-    
-    if not summary_df_raw.empty:
-        
-        # 🚀 FIX APPLIED: Robust date conversion using pd.to_datetime with errors='coerce'
-        summary_df_raw['Date'] = pd.to_datetime(
-            summary_df_raw['Date'], 
-            errors='coerce' # Convert invalid dates (like strings or bad format) to NaT
-        )
-        
-        summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce')
-        
-        # Only use valid dates and totals for aggregation
-        daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
-        
-        # Aggregate total spending per day
-        daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
-        daily_spending.columns = ['Date', 'Daily Total Spend']
-        
-        if not daily_spending.empty:
-            
-            fig_trend = px.line(
-                daily_spending,
-                x='Date',
-                y='Daily Total Spend',
-                title=f'Daily Spending Trend (Unit: {display_currency_label})',
-                labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
-                markers=True # Show markers on data points
-            )
-            
-            # Customize layout
-            fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-            fig_trend.update_traces(line=dict(width=3))
-            
-            st.plotly_chart(fig_trend, use_container_width=True)
-        else:
-            st.warning("Date data is not available or not properly formatted to show the trend chart.")
-    else:
-        st.info("No receipts analyzed yet.")
-    
     # --- End of NEW SECTION ---
 
 
-    # 3. Generate AI Analysis Report (for main analysis summary)
-    st.markdown("---")
-    st.subheader("🤖 AI Expert's Analysis Summary")
-    
-    total_spent = category_summary['Amount'].sum()
-    
-    # Prepare detailed item data for AI analysis
-    detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'Total Spend', 'Currency']]
-    items_text = detailed_items_for_ai.to_string(index=False)
-    
-    # Passed the currency unit AND the detailed item text
-    ai_report = generate_ai_analysis(
-        summary_df=category_summary,
-        store_name="Multiple Stores",
-        total_amount=total_spent,
-        currency_unit=display_currency_label,
-        detailed_items_text=items_text
-    )
-    
-    st.info(ai_report)
-    
-    # 4. Reset and Download Buttons
-    st.markdown("---")
-    
-    @st.cache_data
-    def convert_df_to_csv(df):
-        # Convert the entire DataFrame to CSV format (UTF-8-sig encoding for compatibility)
-        return df.to_csv(index=False, encoding='utf-8-sig')
+    # ----------------------------------------------------------------------
+    # --- 5. Cumulative Data Analysis Section (Always displayed if data exists) ---
+    # ----------------------------------------------------------------------
 
-    csv = convert_df_to_csv(all_items_df_numeric) # Use the numeric dataframe for CSV download
-    
-    st.download_button(
-        label="⬇️ Download Full Cumulative Ledger Data (CSV)",
-        data=csv,
-        file_name=f"all_receipts_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-        mime='text/csv',
-    )
+    if st.session_state.all_receipts_items:
+        st.markdown("---")
+        st.title("📚 Cumulative Spending Analysis Report")
+        
+        # 1. Create a single DataFrame from all accumulated items
+        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
+        # SOLUTION FOR KEY ERROR: Defensive coding to ensure 'Currency' column exists
+        if 'Currency' not in all_items_df_numeric.columns:
+            default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
+            all_items_df_numeric['Currency'] = default_currency
+        
+        # Get the currency unit for consistent labeling
+        display_currency_label = all_items_df_numeric['Currency'].iloc[-1] if not all_items_df_numeric.empty else 'KRW'
 
-    if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
-        st.session_state.all_receipts_items = []
-        st.session_state.all_receipts_summary = []
-        st.session_state.chat_history = [] # Reset chat history too!
-        st.rerun() # Corrected function name
+
+        # A. Display Accumulated Receipts Summary Table
+        st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
+        summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
+        
+        # Drop 'id' and reorder columns for presentation
+        summary_df = summary_df.drop(columns=['id'])
+        
+        # ⭐️ Combine Total and Currency for better display ⭐️
+        summary_df['Total'] = summary_df['Total'].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else 'N/A')
+        summary_df['Amount Paid'] = summary_df['Total'] + ' ' + summary_df['Currency']
+        
+        # Select columns to display
+        summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'filename']] 
+        summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Source'] 
+
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
+        
+        # Create a display version to show currency unit next to monetary values
+        all_items_df_display = all_items_df_numeric.copy()
+        all_items_df_display['Unit Price'] = all_items_df_display.apply(
+            lambda row: f"{row['Unit Price']:,.0f} {row['Currency']}" if pd.notnull(row['Unit Price']) else f"N/A {row['Currency']}", axis=1
+        )
+        all_items_df_display['Total Spend'] = all_items_df_display.apply(
+            lambda row: f"{row['Total Spend']:,.0f} {row['Currency']}" if pd.notnull(row['Total Spend']) else f"N/A {row['Currency']}", axis=1
+        )
+        
+        st.dataframe(
+            all_items_df_display[['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend']], 
+            use_container_width=True, 
+            hide_index=True
+        )
+
+        # 2. Aggregate spending by category and visualize
+        # Use the numeric DataFrame for aggregation
+        category_summary = all_items_df_numeric.groupby('AI Category')['Total Spend'].sum().reset_index()
+        category_summary.columns = ['Category', 'Amount']
+        
+        # --- Display Summary Table ---
+        st.subheader("💰 Spending Summary by Category")
+        
+        # Format the Amount column for display with currency unit
+        category_summary_display = category_summary.copy()
+        category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
+        
+        st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
+
+        # --- Visualization (Bar and Pie Charts) ---
+        
+        col_chart, col_pie = st.columns(2)
+        
+        with col_chart:
+            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})")
+            # Bar Chart (uses numeric category_summary)
+            st.bar_chart(category_summary.set_index('Category'))
+            
+        with col_pie:
+            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})")
+            # Pie Chart using Plotly Express for better visualization
+            
+            # Ensure only positive amounts are included in the chart
+            chart_data = category_summary[category_summary['Amount'] > 0] 
+            
+            if not chart_data.empty:
+                fig = px.pie(
+                    chart_data, 
+                    values='Amount', 
+                    names='Category', 
+                    title=f'Spending Distribution by Category (Unit: {display_currency_label})',
+                    # Set hole for a donut chart appearance
+                    hole=.3, 
+                )
+                # Update layout for better appearance
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No spending data found to generate the pie chart.")
+
+        # --- Spending Trend Over Time Chart (Date conversion fix applied) ---
+        st.markdown("---")
+        st.subheader("📈 Spending Trend Over Time")
+        
+        summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
+        
+        if not summary_df_raw.empty:
+            
+            # 🚀 FIX APPLIED: Robust date conversion using pd.to_datetime with errors='coerce'
+            summary_df_raw['Date'] = pd.to_datetime(
+                summary_df_raw['Date'], 
+                errors='coerce' # Convert invalid dates (like strings or bad format) to NaT
+            )
+            
+            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce')
+            
+            # Only use valid dates and totals for aggregation
+            daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
+            
+            # Aggregate total spending per day
+            daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
+            daily_spending.columns = ['Date', 'Daily Total Spend']
+            
+            if not daily_spending.empty:
+                
+                fig_trend = px.line(
+                    daily_spending,
+                    x='Date',
+                    y='Daily Total Spend',
+                    title=f'Daily Spending Trend (Unit: {display_currency_label})',
+                    labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
+                    markers=True # Show markers on data points
+                )
+                
+                # Customize layout
+                fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+                fig_trend.update_traces(line=dict(width=3))
+                
+                st.plotly_chart(fig_trend, use_container_width=True)
+            else:
+                st.warning("Date data is not available or not properly formatted to show the trend chart.")
+        else:
+            st.info("No receipts analyzed yet.")
+        
+        # --- End of Spending Trend Chart ---
+
+
+        # 3. Generate AI Analysis Report (for main analysis summary)
+        st.markdown("---")
+        st.subheader("🤖 AI Expert's Analysis Summary")
+        
+        total_spent = category_summary['Amount'].sum()
+        
+        # Prepare detailed item data for AI analysis
+        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'Total Spend', 'Currency']]
+        items_text = detailed_items_for_ai.to_string(index=False)
+        
+        # Passed the currency unit AND the detailed item text
+        ai_report = generate_ai_analysis(
+            summary_df=category_summary,
+            store_name="Multiple Stores",
+            total_amount=total_spent,
+            currency_unit=display_currency_label,
+            detailed_items_text=items_text
+        )
+        
+        st.info(ai_report)
+        
+        # 4. Reset and Download Buttons
+        st.markdown("---")
+        
+        @st.cache_data
+        def convert_df_to_csv(df):
+            # Convert the entire DataFrame to CSV format (UTF-8-sig encoding for compatibility)
+            return df.to_csv(index=False, encoding='utf-8-sig')
+
+        csv = convert_df_to_csv(all_items_df_numeric) # Use the numeric dataframe for CSV download
+        
+        st.download_button(
+            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
+            data=csv,
+            file_name=f"all_receipts_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime='text/csv',
+        )
+
+        if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
+            st.session_state.all_receipts_items = []
+            st.session_state.all_receipts_summary = []
+            st.session_state.chat_history = [] # Reset chat history too!
+            st.rerun() # Corrected function name
 
 # ======================================================================
 #             TAB 2: FINANCIAL EXPERT CHAT
