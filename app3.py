@@ -135,33 +135,32 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         return None
 
 # --- 2. AI Analysis Report Generation Function ---
-# This function is used to summarize the overall spending in the Analysis tab
-def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str): # 💡 Added currency_unit
+# 💡 Updated function signature to accept detailed_items_text
+def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
     """
-    Generates an AI analysis report based on aggregated spending data for the main analysis tab.
+    Generates an AI analysis report based on aggregated spending data and detailed items.
     """
     
-    # Convert DataFrame to a string suitable for the prompt
     summary_text = summary_df.to_string(index=False)
     
-    # 💡 Included currency_unit in the total spending amount and mentioned it for the category breakdown
+    # 💡 Updated prompt to include detailed item data for richer analysis
     prompt_template = f"""
     You are an AI ledger analyst providing professional financial advice.
     The user's **all accumulated spending** amounts to {total_amount:,.0f} {currency_unit}.
-    Below is the category breakdown of **all accumulated spending**. (All amounts are in {currency_unit})
     
+    Below is the category breakdown of all accumulated spending (Unit: {currency_unit}):
     --- Spending Summary Data ---
     {summary_text}
     ---
-
+    
     **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
     --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
     {detailed_items_text}
     ---
-    
+
     Follow these instructions and provide an analysis report in a friendly and professional tone:
-    1. Summarize the main characteristic of this total spending (e.g., the largest spending category) in one sentence.
-    2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user (e.g., a suggestion for future budget management).
+    1. Summarize the main characteristic of this total spending (e.g., the largest spending category and its driving factor based on individual items).
+    2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user. Try to mention a specific item or category-related pattern observed in the Detailed Items Data.
     3. The response must only contain the analysis content, starting directly with the summary, without any greetings or additional explanations.
     4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "총 1,500,000 KRW 지출").
     """
@@ -332,14 +331,12 @@ with tab1:
         # 1. Create a single DataFrame from all accumulated items
         all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
-        # 🚀 SOLUTION FOR KEY ERROR: Defensive coding to ensure 'Currency' column exists
+        # SOLUTION FOR KEY ERROR: Defensive coding to ensure 'Currency' column exists
         if 'Currency' not in all_items_df_numeric.columns:
             default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
             all_items_df_numeric['Currency'] = default_currency
-        # -------------------------------------------------------------------------------
         
-        # Get the currency unit of the last receipt for consistent labeling in the cumulative report
-        # We can safely access 'Currency' now
+        # Get the currency unit for consistent labeling
         display_currency_label = all_items_df_numeric['Currency'].iloc[-1] if not all_items_df_numeric.empty else 'KRW'
 
 
@@ -398,12 +395,12 @@ with tab1:
         col_chart, col_pie = st.columns(2)
         
         with col_chart:
-            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})") # Updated subtitle
+            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})")
             # Bar Chart (uses numeric category_summary)
             st.bar_chart(category_summary.set_index('Category'))
             
         with col_pie:
-            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})") # Updated subtitle
+            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})")
             # Pie Chart using Plotly Express for better visualization
             
             # Ensure only positive amounts are included in the chart
@@ -414,7 +411,7 @@ with tab1:
                     chart_data, 
                     values='Amount', 
                     names='Category', 
-                    title=f'Spending Distribution by Category (Unit: {display_currency_label})', # Updated title
+                    title=f'Spending Distribution by Category (Unit: {display_currency_label})',
                     # Set hole for a donut chart appearance
                     hole=.3, 
                 )
@@ -430,21 +427,20 @@ with tab1:
         # 3. Generate AI Analysis Report (for main analysis summary)
         st.markdown("---")
         st.subheader("🤖 AI Expert's Analysis Summary")
-
-        # 💡 새로운 변수 준비: 분석에 필요한 핵심 항목만 추출합니다.
-        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'Total Spend']]
-        items_text = detailed_items_for_ai.to_string(index=False) # 텍스트로 변환
         
         total_spent = category_summary['Amount'].sum()
-        display_currency_label = all_items_df_numeric['Currency'].iloc[-1] if not all_items_df_numeric.empty else 'KRW'
         
-        # 💡 Passed the currency unit to the analysis function
+        # 💡 Prepare detailed item data for AI analysis
+        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'Total Spend', 'Currency']]
+        items_text = detailed_items_for_ai.to_string(index=False)
+        
+        # Passed the currency unit AND the detailed item text
         ai_report = generate_ai_analysis(
             summary_df=category_summary,
             store_name="Multiple Stores",
             total_amount=total_spent,
             currency_unit=display_currency_label,
-            detailed_items_text=items_text # 👈 새 파라미터 추가!
+            detailed_items_text=items_text # 💡 NEW PARAMETER PASSED
         )
         
         st.info(ai_report)
@@ -483,11 +479,10 @@ with tab2:
     else:
         # Get accumulated data summary for the system prompt
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
-        # 🚀 Defensive check for 'Currency' column (if chat is opened before analysis section)
+        # Defensive check for 'Currency' column 
         if 'Currency' not in all_items_df.columns:
             default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
             all_items_df['Currency'] = default_currency
-        # -------------------------------------------------------------------------------
         
         category_summary = all_items_df.groupby('AI Category')['Total Spend'].sum().reset_index()
         total_spent = category_summary['Total Spend'].sum()
