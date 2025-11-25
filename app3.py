@@ -11,7 +11,7 @@ from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 
 # ----------------------------------------------------------------------
-# 📌 0. Currency Conversion Setup 
+# 📌 0. Currency Conversion Setup & Globals
 # ----------------------------------------------------------------------
 
 try:
@@ -28,7 +28,8 @@ client = genai.Client(api_key=API_KEY)
 @st.cache_data
 def get_exchange_rates():
     """
-    ExchangeRate-API를 사용하여 실시간 환율 정보를 가져옵니다. 
+    Fetches real-time exchange rates using ExchangeRate-API (USD Base).
+    Returns a dictionary: {currency_code: KRW_equivalent}
     """
     
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
@@ -39,7 +40,6 @@ def get_exchange_rates():
         response = requests.get(url, timeout=10)
         response.raise_for_status() 
         data = response.json()
-        
         conversion_rates = data.get('conversion_rates', {})
         krw_per_usd = conversion_rates.get('KRW', 0)
         
@@ -61,40 +61,22 @@ def get_exchange_rates():
         return exchange_rates
 
     except requests.exceptions.RequestException as e:
-        st.error(f"❌ 환율 API 요청 오류가 발생했습니다. 폴백 환율을 사용합니다. ({e})")
+        st.error(f"❌ API Request Error. Using fallback rates. ({e})")
         return FALLBACK_RATES
         
     except Exception as e:
-        st.warning(f"⚠️ 환율 데이터 처리 오류 발생. 폴백 환율을 사용합니다. ({e})")
+        st.warning(f"⚠️ Exchange Rate Processing Error. Using fallback rates. ({e})")
         return FALLBACK_RATES
 
 
-# --- Currency Conversion Helper Function ---
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
     rate = rates.get(currency_upper, rates.get('KRW', 1.0))
     return amount * rate
 
-# ----------------------------------------------------------------------
-# 📌 1. Initialize session state & Globals
-# ----------------------------------------------------------------------
-if 'all_receipts_items' not in st.session_state:
-    st.session_state.all_receipts_items = [] 
-if 'all_receipts_summary' not in st.session_state:
-    st.session_state.all_receipts_summary = []
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-
-
-# --- Streamlit Page Configuration ---
-st.set_page_config(
-    page_title="Smart Receipt Analyzer & Tracker 🧾",
-    layout="wide"
-)
-
-# --- Global Categories and Helper Functions ---
-all_categories = [
+# Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
+ALL_CATEGORIES = [
     "외식", "식재료", "카페/음료", "주류", 
     "생필품", "의료/건강", "교육/서적", "통신", "공과금",
     "대중교통", "유류비", "택시", "주차비", 
@@ -105,11 +87,11 @@ all_categories = [
 def get_category_guide():
     guide = ""
     categories = {
-        "음식 (Food)": ["외식", "식재료", "카페/음료", "주류"],
-        "가계 (Household)": ["생필품", "의료/건강", "교육/서적", "통신", "공과금"],
-        "교통 (Transport)": ["대중교통", "유류비", "택시", "주차비"],
-        "문화 (Culture)": ["영화/공연", "여행", "취미", "게임"],
-        "기타 (Other)": ["경조사", "이체/수수료", "비상금", "미분류"],
+        "Food": ["외식 (Dining Out)", "식재료 (Groceries)", "카페/음료 (Coffee/Beverages)", "주류 (Alcohol)"],
+        "Household": ["생필품 (Necessities)", "의료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
+        "Transport": ["대중교통 (Public Transport)", "유류비 (Fuel)", "택시 (Taxi)", "주차비 (Parking)"],
+        "Culture": ["영화/공연 (Movies/Shows)", "여행 (Travel)", "취미 (Hobby)", "게임 (Games)"],
+        "Other": ["경조사 (Events)", "이체/수수료 (Transfer/Fees)", "비상금 (Emergency Fund)", "미분류 (Unclassified)"],
     }
     for main, subs in categories.items():
         guide += f"- **{main}**: {', '.join(subs)}\n"
@@ -117,7 +99,24 @@ def get_category_guide():
 
 
 # ----------------------------------------------------------------------
-# 💡 Sidebar (About This App)
+# 📌 2. Initialize Session State & Page Configuration
+# ----------------------------------------------------------------------
+if 'all_receipts_items' not in st.session_state:
+    st.session_state.all_receipts_items = [] 
+if 'all_receipts_summary' not in st.session_state:
+    st.session_state.all_receipts_summary = []
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+
+
+st.set_page_config(
+    page_title="Smart Receipt Analyzer & Tracker 🧾",
+    layout="wide"
+)
+
+
+# ----------------------------------------------------------------------
+# 📌 3. Sidebar and Main Title (Translated)
 # ----------------------------------------------------------------------
 with st.sidebar:
     st.title("About This App")
@@ -140,12 +139,11 @@ st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
 st.markdown("---")
 
 
-# --- 0. Client Initialization ---
 # 📢 Fetch rates once at app startup
 EXCHANGE_RATES = get_exchange_rates()
 
 
-# --- 1. Gemini Analysis Function (omitted for brevity) ---
+# --- 1. Gemini Analysis Function (Translated Prompt) ---
 def analyze_receipt_with_gemini(_image: Image.Image):
     """
     Calls the Gemini model to extract data and categorize items from a receipt image.
@@ -203,7 +201,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         st.error(f"Gemini API call failed: {e}")
         return None
 
-# --- 2. AI Analysis Report Generation Function (omitted for brevity) ---
+# --- 2. AI Analysis Report Generation Function ---
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
     """
     Generates an AI analysis report based on aggregated spending data and detailed items.
@@ -228,7 +226,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     1. Summarize the main characteristic of this total spending (e.g., the largest spending category and its driving factor based on individual items).
     2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user. Try to mention a specific item or category-related pattern observed in the Detailed Items Data.
     3. The response must only contain the analysis content, starting directly with the summary, without any greetings or additional explanations.
-    4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "총 1,500,000 KRW 지출").
+    4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "Total spending of 1,500,000 KRW").
     """
 
     try:
@@ -243,7 +241,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 
 
 # ----------------------------------------------------------------------
-# --- 3. Streamlit UI: Tab Setup ---
+# 📌 4. Streamlit UI: Tab Setup (Translated)
 # ----------------------------------------------------------------------
 
 tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
@@ -254,8 +252,8 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 # ======================================================================
 with tab1:
     
-    # --- 4. File Uploader and Analysis ---
-    st.subheader("📸 영수증 사진 업로드 (AI 분석)")
+    # --- File Uploader and Analysis ---
+    st.subheader("📸 Upload Receipt Image (AI Analysis)")
     uploaded_file = st.file_uploader(
         "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
         type=['jpg', 'png', 'jpeg'],
@@ -311,7 +309,7 @@ with tab1:
                             st.markdown(f"**📅 Date:** {receipt_data.get('date', 'N/A')}")
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
                             
-                            # 💡 ADDED: Display Applied Exchange Rate for AI Analysis
+                            # 💡 Display Applied Exchange Rate for AI Analysis
                             if display_unit != 'KRW':
                                 applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
                                 st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
@@ -336,7 +334,7 @@ with tab1:
                                             "Final Category",
                                             help="Select the correct sub-category for this item.",
                                             width="medium",
-                                            options=all_categories,
+                                            options=ALL_CATEGORIES,
                                             required=True,
                                         )
                                     },
@@ -351,7 +349,7 @@ with tab1:
                                 edited_df['KRW Total Spend'] = edited_df.apply(
                                     lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
                                 )
-                                edited_df = edited_df.drop(columns=['Total Spend Numeric']) # Remove temporary column
+                                edited_df = edited_df.drop(columns=['Total Spend Numeric'])
 
 
                                 # ** Accumulate Data: Store the edited DataFrame **
@@ -363,7 +361,6 @@ with tab1:
                                     'Total': edited_df['KRW Total Spend'].sum(), # Store KRW Total
                                     'Currency': 'KRW', # Standardize summary currency to KRW
                                     'Date': receipt_data.get('date', 'N/A'),
-                                    # 💡 Store original values
                                     'Original_Total': total_amount, 
                                     'Original_Currency': display_unit 
                                 })
@@ -383,14 +380,14 @@ with tab1:
     st.markdown("---")
     
     # ----------------------------------------------------------------------
-    # --- Manual Expense Input ---
+    # --- Manual Expense Input (Translated) ---
     # ----------------------------------------------------------------------
-    st.subheader("📝 수동 지출 입력 (영수증이 없을 때)")
+    st.subheader("📝 Manual Expense Input (No Receipt)")
     
     st.info("""
-    **✅ 입력 가이드**
-    지출 내역을 간편하게 기록해 보세요.
-    **💡 분류 체계 (소분류)**
+    **✅ Input Guide**
+    Record your expense details easily.
+    **💡 Category Scheme (Sub-Category)**
     """ + get_category_guide()
     )
 
@@ -398,25 +395,25 @@ with tab1:
         col_m1, col_m2, col_m3 = st.columns(3)
         
         with col_m1:
-            manual_date = st.date_input("📅 지출 날짜", value=datetime.date.today())
-            manual_description = st.text_input("📝 지출 내역 (상품명)", placeholder="예: 점심 식사, 커피")
+            manual_date = st.date_input("📅 Expense Date", value=datetime.date.today())
+            manual_description = st.text_input("📝 Expense Item (Description)", placeholder="e.g., Lunch, Groceries")
             
         with col_m2:
-            manual_store = st.text_input("🏠 사용처 (가게 이름)", placeholder="예: OO 식당, 스타벅스")
-            manual_amount = st.number_input("💰 지출 금액 (숫자만)", min_value=0.0, step=100.0, format="%.2f")
+            manual_store = st.text_input("🏠 Store/Merchant Name", placeholder="e.g., Local Diner, Starbucks")
+            manual_amount = st.number_input("💰 Expense Amount (Numbers Only)", min_value=0.0, step=100.0, format="%.2f")
             
         with col_m3:
-            manual_category = st.selectbox("📌 분류 (소분류)", options=all_categories, index=all_categories.index('미분류'))
-            manual_currency = st.selectbox("환율 단위", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
+            manual_category = st.selectbox("📌 Category (Sub-Category)", options=ALL_CATEGORIES, index=ALL_CATEGORIES.index('미분류'))
+            manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
             
-        submitted = st.form_submit_button("✅ 가계부에 추가")
+        submitted = st.form_submit_button("✅ Add to Ledger")
 
         if submitted:
             if manual_description and manual_amount > 0 and manual_category:
                 
                 # 📢 Currency Conversion for Manual Input
                 krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
-                applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0) # Get applied rate
+                applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0)
 
                 # 1. Prepare Item DataFrame 
                 manual_df = pd.DataFrame([{
@@ -433,11 +430,10 @@ with tab1:
                 manual_summary = {
                     'id': f"manual-{pd.Timestamp.now().timestamp()}", 
                     'filename': 'Manual Entry',
-                    'Store': manual_store if manual_store else '수동 입력',
-                    'Total': krw_total, # Store KRW Total
-                    'Currency': 'KRW', # Standardize summary currency to KRW
+                    'Store': manual_store if manual_store else 'Manual Entry',
+                    'Total': krw_total, 
+                    'Currency': 'KRW', 
                     'Date': manual_date.strftime('%Y-%m-%d'),
-                    # 💡 Store original values
                     'Original_Total': manual_amount, 
                     'Original_Currency': manual_currency 
                 }
@@ -446,16 +442,16 @@ with tab1:
                 st.session_state.all_receipts_items.append(manual_df)
                 st.session_state.all_receipts_summary.append(manual_summary)
                 
-                # 💡 MODIFIED SUCCESS MESSAGE: Include applied rate
+                # 💡 Modified Success Message
                 if manual_currency != 'KRW':
-                    rate_info = f" (적용 환율: 1 {manual_currency} = {applied_rate:,.4f} KRW)"
+                    rate_info = f" (Applied Rate: 1 {manual_currency} = {applied_rate:,.4f} KRW)"
                 else:
                     rate_info = ""
                     
-                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} 지출 내역 ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}이(가) 성공적으로 추가되었습니다.")
+                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} expense recorded ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}. Added to ledger.")
                 st.rerun()
             else:
-                st.error("❌ '지출 내역', '지출 금액', '분류'는 필수 항목입니다. 금액은 0보다 커야 합니다.")
+                st.error("❌ 'Expense Item', 'Expense Amount', and 'Category' are required fields. Amount must be greater than 0.")
 
     st.markdown("---")
     
@@ -480,7 +476,7 @@ with tab1:
         display_currency_label = 'KRW'
 
 
-        # A. Display Accumulated Receipts Summary Table
+        # A. Display Accumulated Receipts Summary Table (Translated/Modified)
         st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
         summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
         
