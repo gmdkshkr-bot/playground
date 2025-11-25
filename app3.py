@@ -136,7 +136,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
 
 # --- 2. AI Analysis Report Generation Function ---
 # This function is used to summarize the overall spending in the Analysis tab
-def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float):
+def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str): # 💡 Added currency_unit
     """
     Generates an AI analysis report based on aggregated spending data for the main analysis tab.
     """
@@ -144,10 +144,11 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     # Convert DataFrame to a string suitable for the prompt
     summary_text = summary_df.to_string(index=False)
     
+    # 💡 Included currency_unit in the total spending amount and mentioned it for the category breakdown
     prompt_template = f"""
     You are an AI ledger analyst providing professional financial advice.
-    The user's **all accumulated spending** amounts to {total_amount:,.0f}.
-    Below is the category breakdown of **all accumulated spending**.
+    The user's **all accumulated spending** amounts to {total_amount:,.0f} {currency_unit}.
+    Below is the category breakdown of **all accumulated spending**. (All amounts are in {currency_unit})
     
     --- Spending Summary Data ---
     {summary_text}
@@ -157,6 +158,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     1. Summarize the main characteristic of this total spending (e.g., the largest spending category) in one sentence.
     2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user (e.g., a suggestion for future budget management).
     3. The response must only contain the analysis content, starting directly with the summary, without any greetings or additional explanations.
+    4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "총 1,500,000 KRW 지출").
     """
 
     try:
@@ -287,7 +289,7 @@ with tab1:
                                     use_container_width=True
                                 )
                                 
-                                # 📢 Add Currency column to the edited_df before accumulation
+                                # Add Currency column to the edited_df before accumulation
                                 edited_df['Currency'] = display_unit
 
                                 # ** Accumulate Data: Store the edited DataFrame **
@@ -322,8 +324,18 @@ with tab1:
         st.markdown("---")
         st.title("📚 Cumulative Spending Analysis Report")
         
-        # 📢 Get the currency unit of the last receipt for consistent labeling in the cumulative report
-        display_currency_label = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
+        # 1. Create a single DataFrame from all accumulated items
+        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
+        # 🚀 SOLUTION FOR KEY ERROR: Defensive coding to ensure 'Currency' column exists
+        if 'Currency' not in all_items_df_numeric.columns:
+            default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
+            all_items_df_numeric['Currency'] = default_currency
+        # -------------------------------------------------------------------------------
+        
+        # Get the currency unit of the last receipt for consistent labeling in the cumulative report
+        # We can safely access 'Currency' now
+        display_currency_label = all_items_df_numeric['Currency'].iloc[-1] if not all_items_df_numeric.empty else 'KRW'
 
 
         # A. Display Accumulated Receipts Summary Table
@@ -345,24 +357,9 @@ with tab1:
         
         st.markdown("---")
         
-        # 1. Create a single DataFrame from all accumulated items
-        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
-
-        # 🚀 SOLUTION: Defensive coding to ensure 'Currency' column exists for all items
-        # If data from previous sessions or before code update exists, 'Currency' might be missing.
-        if 'Currency' not in all_items_df_numeric.columns:
-            # Use the currency of the last uploaded receipt, or default to 'KRW'
-            default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
-    
-            # 💡 모든 항목에 빠짐없이 'Currency' 컬럼을 추가하고 기본값으로 채웁니다.
-            all_items_df_numeric['Currency'] = default_currency 
-        # -------------------------------------------------------------------------------
-        # 이 아래부터는 'Currency' 컬럼이 반드시 존재함을 보장합니다.
-
-        
         st.subheader("🛒 Integrated Detail Items") # Title for the detailed item list
         
-        # 📢 Create a display version to show currency unit next to monetary values
+        # Create a display version to show currency unit next to monetary values
         all_items_df_display = all_items_df_numeric.copy()
         all_items_df_display['Unit Price'] = all_items_df_display.apply(
             lambda row: f"{row['Unit Price']:,.0f} {row['Currency']}" if pd.notnull(row['Unit Price']) else f"N/A {row['Currency']}", axis=1
@@ -379,14 +376,13 @@ with tab1:
 
         # 2. Aggregate spending by category and visualize
         # Use the numeric DataFrame for aggregation
-        
         category_summary = all_items_df_numeric.groupby('AI Category')['Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
         # --- Display Summary Table ---
         st.subheader("💰 Spending Summary by Category")
         
-        # 📢 Format the Amount column for display with currency unit
+        # Format the Amount column for display with currency unit
         category_summary_display = category_summary.copy()
         category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
         
@@ -397,12 +393,12 @@ with tab1:
         col_chart, col_pie = st.columns(2)
         
         with col_chart:
-            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})") # 📢 Updated subtitle
+            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})") # Updated subtitle
             # Bar Chart (uses numeric category_summary)
             st.bar_chart(category_summary.set_index('Category'))
             
         with col_pie:
-            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})") # 📢 Updated subtitle
+            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})") # Updated subtitle
             # Pie Chart using Plotly Express for better visualization
             
             # Ensure only positive amounts are included in the chart
@@ -413,7 +409,7 @@ with tab1:
                     chart_data, 
                     values='Amount', 
                     names='Category', 
-                    title=f'Spending Distribution by Category (Unit: {display_currency_label})', # 📢 Updated title
+                    title=f'Spending Distribution by Category (Unit: {display_currency_label})', # Updated title
                     # Set hole for a donut chart appearance
                     hole=.3, 
                 )
@@ -432,11 +428,12 @@ with tab1:
         
         total_spent = category_summary['Amount'].sum()
         
-        # Use the function defined for the main analysis summary
+        # 💡 Passed the currency unit to the analysis function
         ai_report = generate_ai_analysis(
             summary_df=category_summary,
             store_name="Multiple Stores",
-            total_amount=total_spent
+            total_amount=total_spent,
+            currency_unit=display_currency_label 
         )
         
         st.info(ai_report)
@@ -475,20 +472,27 @@ with tab2:
     else:
         # Get accumulated data summary for the system prompt
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        # 🚀 Defensive check for 'Currency' column (if chat is opened before analysis section)
+        if 'Currency' not in all_items_df.columns:
+            default_currency = st.session_state.all_receipts_summary[-1]['Currency'] if st.session_state.all_receipts_summary else 'KRW'
+            all_items_df['Currency'] = default_currency
+        # -------------------------------------------------------------------------------
+        
         category_summary = all_items_df.groupby('AI Category')['Total Spend'].sum().reset_index()
         total_spent = category_summary['Total Spend'].sum()
         summary_text = category_summary.to_string(index=False)
+        display_currency_label_chat = all_items_df['Currency'].iloc[-1] if not all_items_df.empty else 'KRW' # Currency for Chatbot
         
         # System instruction is generated based on the user's current data
         system_instruction = f"""
         You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
         
         The user's cumulative spending data for the current session is as follows:
-        - Total Accumulated Spending: {total_spent:,.0f}
-        - Category Breakdown (Category, Amount):
+        - Total Accumulated Spending: {total_spent:,.0f} {display_currency_label_chat}
+        - Category Breakdown (Category, Amount, all in {display_currency_label_chat}):
         {summary_text}
         
-        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..."). Keep your tone professional yet encouraging.
+        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..."). Keep your tone professional yet encouraging. **Always include the currency unit ({display_currency_label_chat}) when referring to monetary amounts.**
         """
 
         # Display chat history
