@@ -15,6 +15,7 @@ from google.genai.types import HarmCategory, HarmBlockThreshold
 # ----------------------------------------------------------------------
 
 try:
+    # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
     EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
 except KeyError:
@@ -24,10 +25,16 @@ except KeyError:
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
+# 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
+def safe_get_amount(data, key):
+    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
+    value = data.get(key, 0)
+    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
+    numeric_value = pd.to_numeric(value, errors='coerce')
+    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
+    return numeric_value if not pd.isna(numeric_value) else 0.0
+
 @st.cache_data
-
-
-
 def get_exchange_rates():
     """
     Fetches real-time exchange rates using ExchangeRate-API (USD Base).
@@ -35,7 +42,7 @@ def get_exchange_rates():
     """
     
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
-    # Fallback Rates는 1 단위 외화당 KRW 값입니다.
+    # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
 
@@ -85,6 +92,7 @@ def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     
     rate = rates.get(currency_upper, rates.get('KRW', 1.0))
     
+    # 0으로 나누는 오류 방지
     if rate == 0:
         return amount * rates.get('USD', 1300) 
         
@@ -171,12 +179,13 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     **CRITICAL INSTRUCTION:** The response must only contain the **JSON code block wrapped in backticks (```json)**. Do not include any explanations, greetings, or additional text outside the JSON code block.
     
     1. store_name: Store Name (text)
-    2. date: Date (YYYY-MM-DD format)
-    3. total_amount: Total Amount Paid (numbers only, no commas)
-    4. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    5. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    6. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
-    7. items: List of purchased items. Each item must include:
+    2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
+    3. store_location: Store location/address (text). **If not found, use "Seoul".**
+    4. total_amount: Total Amount Paid (numbers only, no commas)
+    5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
+    6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
+    7. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
+    8. items: List of purchased items. Each item must include:
         - name: Item Name (text)
         - price: Unit Price (numbers only, no commas)
         - quantity: Quantity (numbers only)
@@ -194,6 +203,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     {
       "store_name": "...",
       "date": "...",
+      "store_location": "...",
       "total_amount": ...,
       "tax_amount": ...,
       "tip_amount": ...,
@@ -259,16 +269,6 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
         return "Failed to generate analysis report."
 
 
-def safe_get_amount(data, key):
-    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
-    value = data.get(key, 0)
-    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
-    numeric_value = pd.to_numeric(value, errors='coerce')
-    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
-    return numeric_value if not pd.isna(numeric_value) else 0.0
-
-
-
 # ----------------------------------------------------------------------
 # 📌 4. Streamlit UI: Tab Setup (Translated)
 # ----------------------------------------------------------------------
@@ -319,25 +319,42 @@ with tab1:
 
                     if json_data_text:
                         try:
-                            # ... (JSON 파싱 로직)
+                            # 💡 JSON 클리닝 로직 강화
+                            cleaned_text = json_data_text.strip()
+                            if cleaned_text.startswith("```json"):
+                                cleaned_text = cleaned_text.lstrip("```json")
+                            if cleaned_text.endswith("```"):
+                                cleaned_text = cleaned_text.rstrip("```")
                             
-                            receipt_data = json.loads(json_data_text)
+                            receipt_data = json.loads(cleaned_text.strip()) 
                             
-                            # 💡 수정된 부분: safe_get_amount 함수를 사용하여 오류 방지
-                            # 데이터 유효성 검사 및 기본값 설정
+                            # 데이터 유효성 검사 및 기본값 설정 (safe_get_amount 사용)
                             total_amount = safe_get_amount(receipt_data, 'total_amount')
                             tax_amount = safe_get_amount(receipt_data, 'tax_amount')
                             tip_amount = safe_get_amount(receipt_data, 'tip_amount')
-                            # -----------------------------------------------------------
                             
                             currency_unit = receipt_data.get('currency_unit', '').strip()
                             display_unit = currency_unit if currency_unit else 'KRW'
                             
+                            # 💡 날짜와 위치 기본값 처리 로직 추가
+                            receipt_date_str = receipt_data.get('date', '').strip()
+                            store_location_str = receipt_data.get('store_location', '').strip()
+                            
+                            # 날짜 기본값: 유효하지 않거나 빈 문자열이면 오늘 날짜 사용
+                            if not receipt_date_str or pd.isna(pd.to_datetime(receipt_date_str, errors='coerce')):
+                                final_date = datetime.date.today().strftime('%Y-%m-%d')
+                            else:
+                                final_date = receipt_date_str
+                                
+                            # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
+                            final_location = store_location_str if store_location_str else "Seoul"
+
                             # --- Main Information Display ---
                             st.success("✅ Analysis Complete! Check the ledger data below.")
                             
                             st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
-                            st.markdown(f"**📅 Date:** {receipt_data.get('date', 'N/A')}")
+                            st.markdown(f"**📍 Location:** {final_location}") # 💡 위치 표시 추가
+                            st.markdown(f"**📅 Date:** {final_date}") # 💡 처리된 날짜 표시
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
                             
                             # 💡 세금/팁 정보 표시
@@ -388,24 +405,24 @@ with tab1:
                                 )
                                 edited_df = edited_df.drop(columns=['Total Spend Numeric'])
 
-                                # 💡 세금과 팁도 원화로 환산하여 데이터프레임에 추가 (추가 분석을 위해)
+                                # 💡 세금과 팁도 원화로 환산
                                 krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
                                 krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
                                 
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
                                 
-                                # 💡 세금과 팁도 총액에 포함하여 저장
-                                # (단, 이 항목들은 summary에는 포함되지만, item df에 따로 추가하지 않음)
+                                # 💡 세금과 팁, 날짜, 위치 포함하여 Summary에 저장
                                 st.session_state.all_receipts_summary.append({
                                     'id': file_id, 
                                     'filename': uploaded_file.name,
                                     'Store': receipt_data.get('store_name', 'N/A'),
                                     'Total': edited_df['KRW Total Spend'].sum() + krw_tax_total + krw_tip_total, # 아이템 총합 + 세금 + 팁
-                                    'Tax_KRW': krw_tax_total, # 💡 추가된 부분
-                                    'Tip_KRW': krw_tip_total, # 💡 추가된 부분
+                                    'Tax_KRW': krw_tax_total, 
+                                    'Tip_KRW': krw_tip_total, 
                                     'Currency': 'KRW', 
-                                    'Date': receipt_data.get('date', 'N/A'),
+                                    'Date': final_date, # 💡 처리된 날짜 사용
+                                    'Location': final_location, # 💡 처리된 위치 사용
                                     'Original_Total': total_amount, 
                                     'Original_Currency': display_unit 
                                 })
@@ -450,6 +467,7 @@ with tab1:
         with col_m3:
             manual_category = st.selectbox("📌 Category (Sub-Category)", options=ALL_CATEGORIES, index=ALL_CATEGORIES.index('미분류'))
             manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
+            manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") # 💡 수동 입력에도 위치 추가
             
         submitted = st.form_submit_button("✅ Add to Ledger")
 
@@ -477,10 +495,11 @@ with tab1:
                     'filename': 'Manual Entry',
                     'Store': manual_store if manual_store else 'Manual Entry',
                     'Total': krw_total, 
-                    'Tax_KRW': 0.0, # 💡 추가된 부분 (수동 입력 시 세금/팁은 0으로 처리)
-                    'Tip_KRW': 0.0, # 💡 추가된 부분
+                    'Tax_KRW': 0.0, 
+                    'Tip_KRW': 0.0, 
                     'Currency': 'KRW', 
                     'Date': manual_date.strftime('%Y-%m-%d'),
+                    'Location': manual_location if manual_location else "Manual Input Location", # 💡 수동 위치 기록
                     'Original_Total': manual_amount, 
                     'Original_Currency': manual_currency 
                 }
@@ -527,16 +546,17 @@ with tab1:
         st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
         summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
         
-        # Ensure compatibility with older sessions that lack Original_ columns
+        # Ensure compatibility with older sessions that lack columns
         if 'Original_Total' not in summary_df.columns:
             summary_df['Original_Total'] = summary_df['Total'] 
         if 'Original_Currency' not in summary_df.columns:
             summary_df['Original_Currency'] = 'KRW' 
-        # 💡 Tax/Tip 열이 없을 경우 0으로 초기화하여 호환성 확보
         if 'Tax_KRW' not in summary_df.columns:
             summary_df['Tax_KRW'] = 0.0
         if 'Tip_KRW' not in summary_df.columns:
             summary_df['Tip_KRW'] = 0.0
+        if 'Location' not in summary_df.columns: # 💡 위치 호환성 확보
+            summary_df['Location'] = 'N/A'
             
         # Conditional formatting for Amount Paid
         def format_amount_paid(row):
@@ -552,8 +572,9 @@ with tab1:
 
         
         summary_df = summary_df.drop(columns=['id'])
-        summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
-        summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] # 💡 열 이름 변경하여 세금/팁 표시
+        # 💡 Location 컬럼을 추가하여 표시
+        summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
+        summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
 
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
         
@@ -580,7 +601,7 @@ with tab1:
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
-        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (선택 사항)
+        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시
         total_tax_krw = summary_df['Tax (KRW)'].sum()
         total_tip_krw = summary_df['Tip (KRW)'].sum()
         
@@ -590,7 +611,7 @@ with tab1:
             category_summary.loc[len(category_summary)] = ['팁 (Tip)', total_tip_krw]
             
         # --- Display Summary Table ---
-        st.subheader("💰 Spending Summary by Category (Items + Tax + Tip)") # 💡 제목 수정
+        st.subheader("💰 Spending Summary by Category (Items + Tax + Tip)") 
         category_summary_display = category_summary.copy()
         category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
         st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
@@ -652,7 +673,6 @@ with tab1:
         detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'KRW Total Spend']]
         items_text = detailed_items_for_ai.to_string(index=False)
         
-        # 💡 AI 분석 프롬프트에 세금/팁 정보는 따로 명시하지 않고, 카테고리 합계에 포함하여 전달
         ai_report = generate_ai_analysis(
             summary_df=category_summary,
             store_name="Multiple Stores",
