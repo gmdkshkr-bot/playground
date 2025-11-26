@@ -25,6 +25,16 @@ except KeyError:
 client = genai.Client(api_key=API_KEY)
 
 @st.cache_data
+
+def safe_get_amount(data, key):
+    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
+    value = data.get(key, 0)
+    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
+    numeric_value = pd.to_numeric(value, errors='coerce')
+    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
+    return numeric_value if not pd.isna(numeric_value) else 0.0
+
+
 def get_exchange_rates():
     """
     Fetches real-time exchange rates using ExchangeRate-API (USD Base).
@@ -306,15 +316,16 @@ with tab1:
 
                     if json_data_text:
                         try:
-                            if json_data_text.strip().startswith("```json"):
-                                json_data_text = json_data_text.strip().lstrip("```json").rstrip("```").strip()
+                            # ... (JSON 파싱 로직)
                             
                             receipt_data = json.loads(json_data_text)
                             
+                            # 💡 수정된 부분: safe_get_amount 함수를 사용하여 오류 방지
                             # 데이터 유효성 검사 및 기본값 설정
-                            total_amount = pd.to_numeric(receipt_data.get('total_amount'), errors='coerce').fillna(0)
-                            tax_amount = pd.to_numeric(receipt_data.get('tax_amount'), errors='coerce').fillna(0) # 💡 추가된 부분
-                            tip_amount = pd.to_numeric(receipt_data.get('tip_amount'), errors='coerce').fillna(0) # 💡 추가된 부분
+                            total_amount = safe_get_amount(receipt_data, 'total_amount')
+                            tax_amount = safe_get_amount(receipt_data, 'tax_amount')
+                            tip_amount = safe_get_amount(receipt_data, 'tip_amount')
+                            # -----------------------------------------------------------
                             
                             currency_unit = receipt_data.get('currency_unit', '').strip()
                             display_unit = currency_unit if currency_unit else 'KRW'
