@@ -25,47 +25,6 @@ except KeyError:
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
-
-# 💡 신규 함수: 업로드된 아이템 데이터프레임에서 Summary 데이터를 재구성하는 헬퍼 함수
-def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
-    """아이템 DataFrame에서 Summary 단위를 추출하고 재구성합니다."""
-    
-    # 🚨 필수 컬럼 존재 여부 확인
-    required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 
-                     'Total Spend', 'Currency', 'KRW Total Spend']
-    if not all(col in item_df.columns for col in required_cols):
-        return None
-
-    # 데이터프레임의 첫 번째 행에서 Summary에 필요한 메타데이터를 추출한다고 가정
-    # (실제로는 Store, Date, Location 정보가 필요하지만,
-    # 내보낸 CSV에는 이 정보가 없으므로 임의의 값 또는 기본값을 사용해야 합니다.
-    # 여기서는 "Imported Record"로 통일합니다.)
-    
-    first_row = item_df.iloc[0] if not item_df.empty else {}
-    
-    # KRW Total Spend 합계 = Total (KRW)
-    final_total_krw = item_df['KRW Total Spend'].sum()
-    
-    # CSV에 Store, Date, Currency 정보가 없으므로 임의로 생성
-    store_name = 'Imported Record'
-    current_date = datetime.date.today().strftime('%Y-%m-%d')
-    
-    summary_data = {
-        'id': f"imported-{pd.Timestamp.now().timestamp()}",
-        'filename': 'Imported CSV',
-        'Store': store_name,
-        'Total': final_total_krw,
-        'Tax_KRW': 0.0, # CSV 상세 기록에는 Tax/Tip 정보가 없으므로 0으로 가정
-        'Tip_KRW': 0.0,
-        'Currency': 'KRW',
-        'Date': current_date,
-        'Location': 'Imported Location',
-        'Original_Total': final_total_krw,
-        'Original_Currency': 'KRW' 
-    }
-    return summary_data
-
-
 # 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
 def safe_get_amount(data, key):
     """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
@@ -75,7 +34,39 @@ def safe_get_amount(data, key):
     # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
     return numeric_value if not pd.isna(numeric_value) else 0.0
 
-@st.cache_data
+# 💡 헬퍼 함수: 업로드된 아이템 데이터프레임에서 Summary 데이터를 재구성하는 헬퍼 함수
+def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
+    """아이템 DataFrame에서 Summary 단위를 추출하고 재구성합니다. (CSV Import 전용)"""
+    
+    # 🚨 필수 컬럼 존재 여부 확인 (내보낸 CSV 파일 기준)
+    required_cols = ['Item Name', 'AI Category', 'KRW Total Spend']
+    if not all(col in item_df.columns for col in required_cols):
+        return None
+
+    # KRW Total Spend 합계 = Total (KRW)
+    final_total_krw = item_df['KRW Total Spend'].sum()
+    
+    # CSV Import 기록은 메타데이터가 없으므로 임의의 값 또는 기본값을 사용
+    current_date = datetime.date.today().strftime('%Y-%m-%d')
+    
+    summary_data = {
+        'id': f"imported-{pd.Timestamp.now().timestamp()}",
+        'filename': 'Imported CSV',
+        'Store': 'Imported Record',
+        'Total': final_total_krw, 
+        # 💡 U+00A0 제거 후 일반 공백 사용: CSV 상세 기록에는 Tax/Tip 정보가 없으므로 0으로 가정
+        'Tax_KRW': 0.0, 
+        'Tip_KRW': 0.0,
+        'Currency': 'KRW', 
+        'Date': current_date, 
+        'Location': 'Imported Location', 
+        'Original_Total': final_total_krw, 
+        'Original_Currency': 'KRW' 
+    }
+    return summary_data
+
+
+@st.cache_data(ttl=datetime.timedelta(hours=24))
 def get_exchange_rates():
     """
     Fetches real-time exchange rates using ExchangeRate-API (USD Base).
@@ -99,7 +90,7 @@ def get_exchange_rates():
 
         # 데이터 유효성 검사 강화
         if krw_per_usd == 0 or data.get('result') != 'success':
-              raise ValueError("API returned incomplete or failed data or KRW rate is missing.")
+             raise ValueError("API returned incomplete or failed data or KRW rate is missing.")
 
         # 2. Store USD rate: 1 USD = krw_per_usd KRW
         exchange_rates['USD'] = krw_per_usd / usd_per_usd 
@@ -160,8 +151,6 @@ def get_category_guide():
     for main, subs in categories.items():
         guide += f"- **{main}**: {', '.join(subs)}\n"
     return guide
-
-
 
 
 # ----------------------------------------------------------------------
@@ -320,10 +309,10 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 
 
 # ======================================================================
-#     		 	TAB 1: ANALYSIS & TRACKING
+#     		 	TAB 1: ANALYSIS & TRACKING
 # ======================================================================
 with tab1:
-
+    
     # 💡 신규 기능: CSV 파일 업로드 섹션 시작
     st.subheader("📁 Load Previous Record (CSV Upload)")
     
@@ -341,6 +330,8 @@ with tab1:
             
             # 필수 컬럼 검증
             required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+            
+            # CSV의 구조가 내보내기 구조와 일치하는지 확인
             if not all(col in imported_df.columns for col in required_cols):
                 st.error("❌ 업로드된 CSV 파일에 필수 컬럼(Item Name, AI Category, KRW Total Spend 등)이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
                 uploaded_csv_file = None # 업로드 무효화
@@ -451,15 +442,18 @@ with tab1:
                             currency_unit = receipt_data.get('currency_unit', '').strip()
                             display_unit = currency_unit if currency_unit else 'KRW'
                             
-                            # 💡 날짜와 위치 기본값 처리 로직 추가
+                            # 💡 날짜와 위치 기본값 처리 로직 추가 (강력한 포맷 검사 포함)
                             receipt_date_str = receipt_data.get('date', '').strip()
                             store_location_str = receipt_data.get('store_location', '').strip()
                             
-                            # 날짜 기본값: 유효하지 않거나 빈 문자열이면 오늘 날짜 사용
-                            if not receipt_date_str or pd.isna(pd.to_datetime(receipt_date_str, errors='coerce')):
+                            try:
+                                # ISO 8601 형식 (YYYY-MM-DD)으로 강제 변환 시도
+                                date_object = pd.to_datetime(receipt_date_str, format='%Y-%m-%d', errors='raise').date()
+                                final_date = date_object.strftime('%Y-%m-%d')
+                            except (ValueError, TypeError):
+                                # 변환에 실패하면 오늘 날짜를 기본값으로 사용
                                 final_date = datetime.date.today().strftime('%Y-%m-%d')
-                            else:
-                                final_date = receipt_date_str
+                                st.warning("⚠️ AI가 인식한 날짜가 유효하지 않아 오늘 날짜로 대체되었습니다.")
                                 
                             # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
                             final_location = store_location_str if store_location_str else "Seoul"
@@ -693,7 +687,21 @@ with tab1:
         summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
         summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
 
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            summary_df, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Tax (KRW)": st.column_config.NumberColumn(
+                    "Tax (KRW)", 
+                    format="%.0f KRW" # 소수점 없이 KRW 표시
+                ),
+                "Tip (KRW)": st.column_config.NumberColumn(
+                    "Tip (KRW)", 
+                    format="%.0f KRW" # 소수점 없이 KRW 표시
+                ),
+            }
+        )
         
         st.markdown("---")
         
@@ -718,8 +726,7 @@ with tab1:
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
-        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (여기서는 시각화를 위해 부가세를 포함)
-        # 단, Item 합계와 Tax 합계를 구분해서 표시합니다.
+        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시
         total_tax_krw = summary_df['Tax (KRW)'].sum()
         total_tip_krw = summary_df['Tip (KRW)'].sum()
         
@@ -792,7 +799,7 @@ with tab1:
         items_text = detailed_items_for_ai.to_string(index=False)
         
         ai_report = generate_ai_analysis(
-            summary_df=category_summary,
+            summary_df=category_summary.reset_index(drop=True),
             store_name="Multiple Stores",
             total_amount=total_spent,
             currency_unit=display_currency_label, 
@@ -807,13 +814,12 @@ with tab1:
         def convert_df_to_csv(df):
             return df.to_csv(index=False, encoding='utf-8-sig')
 
-        csv = convert_df_to_csv(all_items_df_numeric) 
+        csv = convert_df_to_csv(all_items_df_numeric) 
         st.download_button(
-            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
-            data=csv,
-            # 💡 수정된 부분: 파일 이름을 'record_오늘날짜.csv' 형식으로 변경
-            file_name=f"record_{pd.Timestamp.now().strftime('%Y%m%d')}.csv", 
-            mime='text/csv',
+            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
+            data=csv,
+            file_name=f"record_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime='text/csv',
         )
 
         if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
@@ -823,13 +829,13 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-#     		 	TAB 2: FINANCIAL EXPERT CHAT
+#     		 	TAB 2: FINANCIAL EXPERT CHAT
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
     
     if not st.session_state.all_receipts_items:
-        st.warning("Please analyze at least one receipt in the 'Analysis & Tracking' tab before starting a consultation.")
+        st.warning("Please analyze at least one receipt or load a CSV in the 'Analysis & Tracking' tab before starting a consultation.")
     else:
         # Chat uses KRW-based analysis data
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
@@ -848,6 +854,8 @@ with tab2:
             category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', summary_df_for_chat['Tax_KRW'].sum()]
         if 'Tip_KRW' in summary_df_for_chat.columns:
             category_summary.loc[len(category_summary)] = ['팁 (Tip)', summary_df_for_chat['Tip_KRW'].sum()]
+        
+        category_summary.columns = ['Category', 'KRW Total Spend'] # Column name for consistency
 
         total_spent = category_summary['KRW Total Spend'].sum()
         summary_text = category_summary.to_string(index=False)
@@ -874,6 +882,20 @@ with tab2:
         Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). Keep your tone professional yet encouraging. **Always include the currency unit (KRW) when referring to monetary amounts.**
         """
 
+        # 💡 초기 메시지 추가 (UX 개선)
+        if not st.session_state.chat_history:
+            initial_message = f"""
+            안녕하세요! 저는 귀하의 지출 패턴을 분석하는 AI 금융 전문가입니다. 
+            현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었습니다.
+            어떤 부분에 대해 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+
+            * "가장 큰 지출 카테고리가 뭐예요?"
+            * "식비에서 절약할 수 있는 팁을 주세요."
+            * "저축 목표를 달성하려면 어떻게 해야 할까요?"
+            """
+            st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
+
+
         # Display chat history
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
@@ -891,12 +913,28 @@ with tab2:
                     try:
                         contents = [
                             {"role": "user", "parts": [{"text": msg["content"]}]} 
-                            for msg in st.session_state.chat_history
+                            for msg in st.session_state.chat_history if msg["role"] == "user" # 유저 메시지만 추출
                         ]
                         
+                        # 어시스턴트의 답변도 history에 포함
+                        assistant_responses = [
+                            {"role": "assistant", "parts": [{"text": msg["content"]}]}
+                            for msg in st.session_state.chat_history if msg["role"] == "assistant"
+                        ]
+                        
+                        # history를 순서대로 결합 (User, Assistant, User, Assistant...)
+                        combined_contents = []
+                        history_items = st.session_state.chat_history[:-1] # 마지막 user prompt 제외
+                        for item in history_items:
+                             combined_contents.append({"role": item["role"], "parts": [{"text": item["content"]}]})
+                        
+                        # 마지막 user prompt 추가
+                        combined_contents.append({"role": "user", "parts": [{"text": prompt}]})
+
+
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=contents,
+                            contents=combined_contents,
                             config=genai.types.GenerateContentConfig(
                                 system_instruction=system_instruction
                             )
