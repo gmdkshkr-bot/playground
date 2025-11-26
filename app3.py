@@ -286,7 +286,7 @@ with tab1:
     uploaded_file = st.file_uploader(
         "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
         type=['jpg', 'png', 'jpeg'],
-        accept_multiple_files=False 
+        accept_multiple_files=False
     )
 
     # --- 👇 New Feature: Load Previous Data via CSV Upload ---
