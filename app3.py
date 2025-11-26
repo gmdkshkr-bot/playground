@@ -9,7 +9,6 @@ import plotly.express as px
 import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
-import uuid # 💡 NEW: Manual Entry의 고유 ID 생성을 위해 추가
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
@@ -18,7 +17,7 @@ import uuid # 💡 NEW: Manual Entry의 고유 ID 생성을 위해 추가
 try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    EXCHANGE_RATE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
 except KeyError:
     st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
     st.stop()
@@ -140,7 +139,7 @@ st.set_page_config(
 
 
 # ----------------------------------------------------------------------
-# 📌 3. Sidebar and Main Title
+# 📌 3. Sidebar and Main Title (Translated)
 # ----------------------------------------------------------------------
 with st.sidebar:
     st.title("About This App")
@@ -148,15 +147,19 @@ with st.sidebar:
     
     st.subheader("How to Use")
     st.markdown("""
-    1. **Load Data:** Upload your previous ledger CSV file (if available).
-    2. **Upload / Manual Input:** Enter new spending data.
-    3. **Auto-Convert:** Foreign currencies are converted to **KRW**.
-    4. **Download:** Download the cumulative ledger CSV to save your progress.
+    This application helps you manage your household ledger easily by using AI.
+    1. **Upload / Manual Input:** Enter spending data via receipt image or manual form.
+    2. **Auto-Convert:** Foreign currencies are automatically converted to **KRW** using real-time rates.
+    3. **Analyze & Accumulate:** Results are added to the cumulative record.
+    4. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
     """)
     
     st.markdown("---")
     if st.session_state.all_receipts_items:
-        st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.")
+        st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") # Summary 기준으로 갯수 표시
+        
+st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
+st.markdown("---")
 
 
 # 📢 Fetch rates once at app startup
@@ -267,7 +270,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 
 
 # ----------------------------------------------------------------------
-# 📌 4. Streamlit UI: Tab Setup
+# 📌 4. Streamlit UI: Tab Setup (Translated)
 # ----------------------------------------------------------------------
 
 tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
@@ -277,77 +280,6 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 #     		 	TAB 1: ANALYSIS & TRACKING
 # ======================================================================
 with tab1:
-    
-    # 💡 NEW: CSV 파일 로드 섹션
-    st.subheader("⬆️ Load Past Ledger Data (CSV)")
-    uploaded_past_file = st.file_uploader(
-        "Upload a previously downloaded CSV file to load past records.",
-        type=['csv'],
-        accept_multiple_files=False,
-        key='past_csv_uploader'
-    )
-    
-    # 💡 NEW: CSV 로드 처리 로직
-    if uploaded_past_file is not None:
-        try:
-            # CSV 파일을 DataFrame으로 읽기
-            past_df = pd.read_csv(uploaded_past_file)
-            
-            # --- 데이터프레임을 Session State 구조에 맞게 변환 및 추가 ---
-            # 1. Summary 데이터 준비 (필요한 컬럼: Original_Total, Original_Currency, Tax_KRW, Tip_KRW, Total, Date, Store, Location)
-            # 2. Items 데이터 준비 (필요한 컬럼: Item Name, Total Spend, Currency, KRW Total Spend, AI Category)
-
-            # 필터링: Summary에 필요한 최소 정보가 있는 행만 추출
-            summary_cols = ['Original_Total', 'Original_Currency', 'Tax_KRW', 'Tip_KRW', 'Total', 'Date', 'Store', 'Location', 'filename']
-            # 과거 데이터는 'filename'이 없으므로 임의로 'Loaded CSV'로 설정
-            past_df['filename'] = past_df.get('filename', 'Loaded CSV') 
-            
-            # 과거 데이터의 Summary 정보를 추출하여 세션에 추가
-            if all(col in past_df.columns for col in summary_cols[:7]):
-                
-                # 기존 Summary 리스트를 새로 만듭니다. (중복 방지 로직은 생략)
-                st.session_state.all_receipts_summary = []
-                
-                # Summary 데이터를 Dictionary 리스트로 변환 (DB 저장 구조와 유사)
-                for index, row in past_df.drop_duplicates(subset=['Item Name', 'KRW Equivalent', 'Source']).iterrows():
-                    # Item 단위가 아닌 Transaction 단위로 Summary를 복원하는 것은 어려움.
-                    # 여기서는 로드를 단순화하기 위해, CSV의 각 행을 개별 항목으로 다시 구성합니다.
-                    
-                    # 💡 Simplification: CSV file structure only stores items.
-                    # We will only load the items and recalculate the summary on the fly.
-                    
-                    # 💡 CSV에 Item Name, KRW Equivalent, AI Category가 있다고 가정
-                    if 'Item Name' in past_df.columns and 'KRW Equivalent' in past_df.columns and 'AI Category' in past_df.columns:
-                        
-                        st.session_state.all_receipts_summary = [] # summary는 재계산될 것이므로 비워둠
-                        st.session_state.all_receipts_items = []
-
-                        # Item DataFrame을 Session State 구조에 맞게 복원
-                        item_df_to_load = past_df[[
-                            'Item Name', 'Original Total', 'KRW Equivalent', 'AI Category'
-                        ]].copy()
-                        item_df_to_load.columns = ['Item Name', 'Total Spend', 'KRW Total Spend', 'AI Category']
-                        
-                        # Currency, Unit Price, Quantity 등은 복원 불가하므로, 단순화를 위해 Items만 합산
-                        # 🚨 주의: CSV는 거래 단위(Summary)가 아닌 항목 단위(Items)로 저장되므로, 
-                        # Summary를 복원하는 대신, Item Dataframe을 합친 후 Summary를 재계산해야 합니다.
-                        
-                        # 로드된 CSV를 통째로 Items 리스트에 넣습니다.
-                        st.session_state.all_receipts_items.append(item_df_to_load)
-                        
-                        st.success(f"✅ Past ledger data from {uploaded_past_file.name} successfully loaded and merged.")
-                        st.warning("⚠️ For simplification, past data is treated as one large set of items. New entries will append normally.")
-                        
-                        # 강제 재실행 없이, Analysis Section에서 데이터를 새로 처리하도록 유도
-                        break 
-                
-            else:
-                 st.error("❌ CSV 파일에 'Item Name', 'KRW Equivalent', 'AI Category'와 같은 필수 항목이 누락되어 있습니다.")
-
-        except Exception as e:
-            st.error(f"❌ Error reading CSV file: {e}")
-            
-    st.markdown("---")
     
     # --- File Uploader and Analysis ---
     st.subheader("📸 Upload Receipt Image (AI Analysis)")
@@ -376,11 +308,13 @@ with tab1:
             
             if is_already_analyzed:
                 
-                # 중복된 경우, 경고 메시지 표시 및 저장된 결과 표시 (기존 로직 유지)
+                # 💡 중복된 경우, 경고 메시지 표시 및 저장된 결과 표시
                 st.warning(f"⚠️ 이 영수증 ({uploaded_file.name})은 이미 분석되어 기록되었습니다. 중복 기록은 막았습니다.")
                 analyze_button = st.button("✨ Start Receipt Analysis", disabled=True)
                 
+                # 💡 저장된 Summary 데이터로 분석 결과를 바로 표시
                 display_unit = existing_summary['Original_Currency']
+                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
                 
                 st.markdown(f"**🏠 Store Name:** {existing_summary.get('Store', 'N/A')}")
                 st.markdown(f"**📍 Location:** {existing_summary.get('Location', 'N/A')}")
@@ -391,6 +325,7 @@ with tab1:
                 krw_tip = existing_summary.get('Tip_KRW', 0)
                 
                 if krw_tax > 0 or krw_tip > 0:
+                    # 원화 기준 금액을 다시 원화로 표시
                     tax_display = f"{krw_tax:,.0f} KRW"
                     tip_display = f"{krw_tip:,.0f} KRW"
                     st.markdown(f"**🧾 Tax/VAT (KRW):** {tax_display} | **💸 Tip (KRW):** {tip_display}")
@@ -398,7 +333,11 @@ with tab1:
                 st.info(f"누적 기록 총액 (KRW): **{existing_summary.get('Total', 0):,.0f} KRW** (부가세 제외)")
                 st.markdown("---")
 
+                # 중복이므로 추가적인 분석 로직은 실행하지 않음
+                pass 
+                
             else:
+                # 중복이 아닌 경우, 분석 버튼 활성화
                 analyze_button = st.button("✨ Start Receipt Analysis")
 
 
@@ -432,11 +371,13 @@ with tab1:
                             receipt_date_str = receipt_data.get('date', '').strip()
                             store_location_str = receipt_data.get('store_location', '').strip()
                             
+                            # 날짜 기본값: 유효하지 않거나 빈 문자열이면 오늘 날짜 사용
                             if not receipt_date_str or pd.isna(pd.to_datetime(receipt_date_str, errors='coerce')):
                                 final_date = datetime.date.today().strftime('%Y-%m-%d')
                             else:
                                 final_date = receipt_date_str
                                 
+                            # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
                             final_location = store_location_str if store_location_str else "Seoul"
 
                             # --- Main Information Display ---
@@ -447,11 +388,13 @@ with tab1:
                             st.markdown(f"**📅 Date:** {final_date}") 
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
                             
+                            # 💡 세금/팁 정보 표시
                             if tax_amount > 0 or tip_amount > 0:
                                 tax_display = f"{tax_amount:,.2f} {display_unit}"
                                 tip_display = f"{tip_amount:,.2f} {display_unit}"
                                 st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
                             
+                            # 💡 Display Applied Exchange Rate for AI Analysis
                             if display_unit != 'KRW':
                                 applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
                                 st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
@@ -497,7 +440,7 @@ with tab1:
                                 krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
                                 krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
                                 
-                                # ** Accumulate Data: Store the edited DataFrame in session state **
+                                # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
                                 
                                 # 💡 최종 수정: 한국 영수증의 경우 Tax_KRW는 Total 금액에 다시 합산하지 않고 Tip만 합산합니다.
@@ -507,7 +450,7 @@ with tab1:
                                     'id': file_id, 
                                     'filename': uploaded_file.name,
                                     'Store': receipt_data.get('store_name', 'N/A'),
-                                    'Total': final_total_krw, 
+                                    'Total': final_total_krw, # 아이템 총합 + Tip만 더함 (Tax 제외)
                                     'Tax_KRW': krw_tax_total, 
                                     'Tip_KRW': krw_tip_total, 
                                     'Currency': 'KRW', 
@@ -517,7 +460,7 @@ with tab1:
                                     'Original_Currency': display_unit 
                                 })
 
-                                st.success(f"🎉 Data from {uploaded_file.name} successfully added!")
+                                st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
 
                             else:
                                 st.warning("Item list could not be found in the analysis result.")
@@ -532,7 +475,7 @@ with tab1:
     st.markdown("---")
     
     # ----------------------------------------------------------------------
-    # --- Manual Expense Input (DB Saving Logic Added) ---
+    # --- Manual Expense Input (Translated) ---
     # ----------------------------------------------------------------------
     st.subheader("📝 Manual Expense Input (No Receipt)")
     
@@ -564,6 +507,7 @@ with tab1:
         if submitted:
             if manual_description and manual_amount > 0 and manual_category:
                 
+                # 📢 Currency Conversion for Manual Input
                 krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
                 applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0)
 
@@ -580,7 +524,7 @@ with tab1:
                 
                 # 2. Prepare Summary Data
                 manual_summary = {
-                    'id': f"manual-{uuid.uuid4()}", # 💡 고유 ID 생성
+                    'id': f"manual-{pd.Timestamp.now().timestamp()}", 
                     'filename': 'Manual Entry',
                     'Store': manual_store if manual_store else 'Manual Entry',
                     'Total': krw_total, # 수동 입력은 총액을 그대로 사용 (Tip/Tax는 0)
@@ -593,16 +537,17 @@ with tab1:
                     'Original_Currency': manual_currency 
                 }
                 
-                # 3. Accumulate Data in Session State
+                # 3. Accumulate Data
                 st.session_state.all_receipts_items.append(manual_df)
                 st.session_state.all_receipts_summary.append(manual_summary)
                 
+                # 💡 Modified Success Message
                 if manual_currency != 'KRW':
                     rate_info = f" (Applied Rate: 1 {manual_currency} = {applied_rate:,.4f} KRW)"
                 else:
                     rate_info = ""
                     
-                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} expense recorded! ({manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}.")
+                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} expense recorded ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}. Added to ledger.")
                 st.rerun()
             else:
                 st.error("❌ 'Expense Item', 'Expense Amount', and 'Category' are required fields. Amount must be greater than 0.")
@@ -610,7 +555,7 @@ with tab1:
     st.markdown("---")
     
     # ----------------------------------------------------------------------
-    # --- 5. Cumulative Data Analysis Section ---
+    # --- 5. Cumulative Data Analysis Section (ALL ANALYSIS IS KRW BASED) ---
     # ----------------------------------------------------------------------
 
     if st.session_state.all_receipts_items:
@@ -618,30 +563,20 @@ with tab1:
         st.title("📚 Cumulative Spending Analysis Report")
         
         # 1. Create a single DataFrame from all accumulated items
-        # 💡 NOTE: CSV 로드 시 Items 리스트에 통째로 추가했으므로, 여기서 Items 리스트를 합쳐 Summary를 재계산해야 합니다.
-        try:
-            all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
-        except ValueError:
-            st.warning("⚠️ 항목 데이터가 호환되지 않아 누적 분석을 건너뜁니다. (항목 리스트가 비어 있거나 형식이 다름)")
-            st.session_state.all_receipts_items = []
-            st.session_state.all_receipts_summary = []
-            st.stop()
-
-
+        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
         # Defensive coding: KRW Total Spend must exist for analysis
         if 'KRW Total Spend' not in all_items_df_numeric.columns:
-             st.warning("Data structure error: KRW Total Spend column missing.")
-             st.stop()
+             st.warning("Old data structure detected. Recalculating KRW totals...")
+             all_items_df_numeric['KRW Total Spend'] = all_items_df_numeric.apply(
+                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
+             )
 
         display_currency_label = 'KRW'
 
-        # A. Display Accumulated Receipts Summary Table (Summary는 수동으로 생성)
-        # 💡 CSV 로드 시 Summary가 재계산되었을 수 있으므로, Items 기준으로 Summary를 재구성합니다.
-        
-        # 🚨 이 부분은 Item 단위가 아닌 Transaction 단위로 Summary를 표시하는 것이 목적이므로,
-        # Item 데이터만 로드된 상태에서는 Summary 테이블은 현재 세션의 Summary만 표시합니다.
-        
-        st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Transactions Logged (Summary)")
+
+        # A. Display Accumulated Receipts Summary Table (Translated/Modified)
+        st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
         summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
         
         # Ensure compatibility with older sessions that lack columns
@@ -670,6 +605,7 @@ with tab1:
 
         
         summary_df = summary_df.drop(columns=['id'])
+        # 💡 Location 컬럼을 추가하여 표시
         summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
         summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
 
@@ -681,9 +617,8 @@ with tab1:
         
         all_items_df_display = all_items_df_numeric.copy()
         
-        # 💡 CSV에서 로드된 데이터에는 Original Total/Currency 정보가 불완전하므로, KRW 기준으로만 표시
-        all_items_df_display['Original Total'] = all_items_df_display['KRW Total Spend'].apply(
-            lambda x: f"{x:,.0f} KRW"
+        all_items_df_display['Original Total'] = all_items_df_display.apply(
+            lambda row: f"{row['Total Spend']:,.2f} {row['Currency']}", axis=1
         )
         all_items_df_display['KRW Equivalent'] = all_items_df_display['KRW Total Spend'].apply(
             lambda x: f"{x:,.0f} KRW"
@@ -699,7 +634,8 @@ with tab1:
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
-        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (Items Summary에는 Tax/Tip이 없으므로, Transaction Summary를 합산)
+        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (여기서는 시각화를 위해 부가세를 포함)
+        # 단, Item 합계와 Tax 합계를 구분해서 표시합니다.
         total_tax_krw = summary_df['Tax (KRW)'].sum()
         total_tip_krw = summary_df['Tip (KRW)'].sum()
         
@@ -785,10 +721,8 @@ with tab1:
         st.markdown("---")
         @st.cache_data
         def convert_df_to_csv(df):
-            # 💡 Download 시에는 모든 항목을 하나의 DataFrame으로 합쳐서 제공합니다.
             return df.to_csv(index=False, encoding='utf-8-sig')
 
-        # 💡 CSV 다운로드는 Items DataFrame을 모두 합친 'all_items_df_numeric'를 사용합니다.
         csv = convert_df_to_csv(all_items_df_numeric) 
         st.download_button(
             label="⬇️ Download Full Cumulative Ledger Data (CSV)",
@@ -815,6 +749,7 @@ with tab2:
         # Chat uses KRW-based analysis data
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
+        # Defensive check for KRW Total Spend column
         if 'KRW Total Spend' not in all_items_df.columns:
              all_items_df['KRW Total Spend'] = all_items_df.apply(
                  lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
@@ -822,6 +757,7 @@ with tab2:
         
         category_summary = all_items_df.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         
+        # 💡 채팅 분석을 위해 세금/팁 항목을 category_summary에 추가
         summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
         if 'Tax_KRW' in summary_df_for_chat.columns:
             category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', summary_df_for_chat['Tax_KRW'].sum()]
@@ -832,9 +768,11 @@ with tab2:
         summary_text = category_summary.to_string(index=False)
         display_currency_label_chat = 'KRW'
         
+        # Prepare detailed item data for the chatbot's system instruction
         detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
+        # MODIFIED SYSTEM INSTRUCTION
         system_instruction = f"""
         You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
         
