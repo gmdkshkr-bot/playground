@@ -316,11 +316,12 @@ with tab1:
     # 💡 신규 기능: CSV 파일 업로드 섹션 시작
     st.subheader("📁 Load Previous Record (CSV Upload)")
     
+    # key='csv_uploader'를 사용하여 파일 업로드 위젯의 상태를 명시적으로 제어합니다.
     uploaded_csv_file = st.file_uploader(
         "Upload a previously downloaded ledger CSV file (e.g., record_YYYYMMDD.csv)",
         type=['csv'],
         accept_multiple_files=False,
-        key='csv_uploader' # 키 추가
+        key='csv_uploader' # 키 유지
     )
 
     if uploaded_csv_file is not None:
@@ -331,14 +332,10 @@ with tab1:
             # 필수 컬럼 검증
             required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
             
-            # CSV의 구조가 내보내기 구조와 일치하는지 확인
             if not all(col in imported_df.columns for col in required_cols):
                 st.error("❌ 업로드된 CSV 파일에 필수 컬럼(Item Name, AI Category, KRW Total Spend 등)이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
-                uploaded_csv_file = None # 업로드 무효화
-            
-            if uploaded_csv_file is not None:
+            else:
                 # 1. 아이템 목록에 추가
-                # CSV 파일은 이미 하나의 큰 아이템 DataFrame이므로, 이 전체를 하나의 리스트 요소로 추가
                 st.session_state.all_receipts_items.append(imported_df)
                 
                 # 2. Summary 데이터 재구성 및 추가 (하나의 큰 묶음으로 간주)
@@ -346,12 +343,17 @@ with tab1:
                 if summary_data:
                     st.session_state.all_receipts_summary.append(summary_data)
                     st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
-                    st.rerun()
+                    
+                    # 🚨 무한 루프 방지 핵심 수정: 파일 처리 완료 후 위젯 상태 초기화
+                    # key를 이용하여 위젯 상태를 직접 지웁니다.
+                    st.session_state['csv_uploader'] = None
+                    st.rerun() # 변경 사항을 반영하기 위해 페이지 재실행
                 else:
                     st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
             
         except Exception as e:
             st.error(f"❌ CSV 파일을 처리하는 중 오류가 발생했습니다: {e}")
+            
             
     st.markdown("---")
     # 💡 신규 기능: CSV 파일 업로드 섹션 끝
