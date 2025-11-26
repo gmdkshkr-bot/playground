@@ -3,138 +3,138 @@ import json
 import pandas as pd
 from PIL import Image
 import io
-import datetime 
+import datetime 
 import numpy as np
 import plotly.express as px
 import requests
 from google import genai
-from google.genai.types import HarmCategory, HarmBlockThreshold 
+from google.genai.types import HarmCategory, HarmBlockThreshold 
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
 # ----------------------------------------------------------------------
 
 try:
-    # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
 except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
-    st.stop()
+    st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
+    st.stop()
 
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
 # 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
 def safe_get_amount(data, key):
-    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
-    value = data.get(key, 0)
-    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
-    numeric_value = pd.to_numeric(value, errors='coerce')
-    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
-    return numeric_value if not pd.isna(numeric_value) else 0.0
+    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
+    value = data.get(key, 0)
+    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
+    numeric_value = pd.to_numeric(value, errors='coerce')
+    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
+    return numeric_value if not pd.isna(numeric_value) else 0.0
 
 @st.cache_data
 def get_exchange_rates():
-    """
-    Fetches real-time exchange rates using ExchangeRate-API (USD Base).
-    Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
-    """
-    
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
-    # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
-    FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
-    exchange_rates = {'KRW': 1.0} 
+    """
+    Fetches real-time exchange rates using ExchangeRate-API (USD Base).
+    Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
+    """
+    
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
+    # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
+    FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
+    exchange_rates = {'KRW': 1.0} 
 
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status() 
-        data = response.json()
-        conversion_rates = data.get('conversion_rates', {})
-        
-        # 1. KRW Rate (USD -> KRW) 추출
-        krw_per_usd = conversion_rates.get('KRW', 0)
-        usd_per_usd = conversion_rates.get('USD', 1.0) 
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status() 
+        data = response.json()
+        conversion_rates = data.get('conversion_rates', {})
+        
+        # 1. KRW Rate (USD -> KRW) 추출
+        krw_per_usd = conversion_rates.get('KRW', 0)
+        usd_per_usd = conversion_rates.get('USD', 1.0) 
 
-        # 데이터 유효성 검사 강화
-        if krw_per_usd == 0 or data.get('result') != 'success':
-              raise ValueError("API returned incomplete or failed data or KRW rate is missing.")
+        # 데이터 유효성 검사 강화
+        if krw_per_usd == 0 or data.get('result') != 'success':
+              raise ValueError("API returned incomplete or failed data or KRW rate is missing.")
 
-        # 2. Store USD rate: 1 USD = krw_per_usd KRW
-        exchange_rates['USD'] = krw_per_usd / usd_per_usd 
-        
-        # 3. Calculate EUR rate: 1 EUR = (KRW/USD) / (EUR/USD)
-        eur_rate_vs_usd = conversion_rates.get('EUR', 0)
-        if eur_rate_vs_usd > 0:
-            exchange_rates['EUR'] = krw_per_usd / eur_rate_vs_usd
-        
-        # 4. Calculate JPY rate: 1 JPY = (KRW/USD) / (JPY/USD)
-        jpy_rate_vs_usd = conversion_rates.get('JPY', 0)
-        if jpy_rate_vs_usd > 0:
-            exchange_rates['JPY'] = krw_per_usd / jpy_rate_vs_usd
-            
-        st.sidebar.success(f"✅ Real-time rates loaded. (1 USD = {exchange_rates.get('USD', 0):,.2f} KRW)")
+        # 2. Store USD rate: 1 USD = krw_per_usd KRW
+        exchange_rates['USD'] = krw_per_usd / usd_per_usd 
+        
+        # 3. Calculate EUR rate: 1 EUR = (KRW/USD) / (EUR/USD)
+        eur_rate_vs_usd = conversion_rates.get('EUR', 0)
+        if eur_rate_vs_usd > 0:
+            exchange_rates['EUR'] = krw_per_usd / eur_rate_vs_usd
+        
+        # 4. Calculate JPY rate: 1 JPY = (KRW/USD) / (JPY/USD)
+        jpy_rate_vs_usd = conversion_rates.get('JPY', 0)
+        if jpy_rate_vs_usd > 0:
+            exchange_rates['JPY'] = krw_per_usd / jpy_rate_vs_usd
+            
+        st.sidebar.success(f"✅ Real-time rates loaded. (1 USD = {exchange_rates.get('USD', 0):,.2f} KRW)")
 
-        return exchange_rates
+        return exchange_rates
 
-    except requests.exceptions.RequestException as e:
-        st.error(f"❌ API Request Error. Using fallback rates. ({e})")
-        return FALLBACK_RATES
-        
-    except Exception as e:
-        st.warning(f"⚠️ Exchange Rate Processing Error. Using fallback rates. ({e})")
-        return FALLBACK_RATES
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ API Request Error. Using fallback rates. ({e})")
+        return FALLBACK_RATES
+        
+    except Exception as e:
+        st.warning(f"⚠️ Exchange Rate Processing Error. Using fallback rates. ({e})")
+        return FALLBACK_RATES
 
 
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
-    """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
-    currency_upper = currency.upper().strip()
-    
-    rate = rates.get(currency_upper, rates.get('KRW', 1.0))
-    
-    # 0으로 나누는 오류 방지
-    if rate == 0:
-        return amount * rates.get('USD', 1300) 
-        
-    return amount * rate
+    """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
+    currency_upper = currency.upper().strip()
+    
+    rate = rates.get(currency_upper, rates.get('KRW', 1.0))
+    
+    # 0으로 나누는 오류 방지
+    if rate == 0:
+        return amount * rates.get('USD', 1300) 
+        
+    return amount * rate
 
 # Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
 ALL_CATEGORIES = [
-    "외식", "식재료", "카페/음료", "주류", 
-    "생필품", "의료/건강", "교육/서적", "통신", "공과금",
-    "대중교통", "유류비", "택시", "주차비", 
-    "영화/공연", "여행", "취미", "게임", 
-    "경조사", "이체/수수료", "비상금", "미분류"
+    "외식", "식재료", "카페/음료", "주류", 
+    "생필품", "의료/건강", "교육/서적", "통신", "공과금",
+    "대중교통", "유류비", "택시", "주차비", 
+    "영화/공연", "여행", "취미", "게임", 
+    "경조사", "이체/수수료", "비상금", "미분류"
 ]
 
 def get_category_guide():
-    guide = ""
-    categories = {
-        "Food": ["외식 (Dining Out)", "식재료 (Groceries)", "카페/음료 (Coffee/Beverages)", "주류 (Alcohol)"],
-        "Household": ["생필품 (Necessities)", "의료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
-        "Transport": ["대중교통 (Public Transport)", "유류비 (Fuel)", "택시 (Taxi)", "주차비 (Parking)"],
-        "Culture": ["영화/공연 (Movies/Shows)", "여행 (Travel)", "취미 (Hobby)", "게임 (Games)"],
-        "Other": ["경조사 (Events)", "이체/수수료 (Transfer/Fees)", "비상금 (Emergency Fund)", "미분류 (Unclassified)"],
-    }
-    for main, subs in categories.items():
-        guide += f"- **{main}**: {', '.join(subs)}\n"
-    return guide
+    guide = ""
+    categories = {
+        "Food": ["외식 (Dining Out)", "식재료 (Groceries)", "카페/음료 (Coffee/Beverages)", "주류 (Alcohol)"],
+        "Household": ["생필품 (Necessities)", "의료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
+        "Transport": ["대중교통 (Public Transport)", "유류비 (Fuel)", "택시 (Taxi)", "주차비 (Parking)"],
+        "Culture": ["영화/공연 (Movies/Shows)", "여행 (Travel)", "취미 (Hobby)", "게임 (Games)"],
+        "Other": ["경조사 (Events)", "이체/수수료 (Transfer/Fees)", "비상금 (Emergency Fund)", "미분류 (Unclassified)"],
+    }
+    for main, subs in categories.items():
+        guide += f"- **{main}**: {', '.join(subs)}\n"
+    return guide
 
 
 # ----------------------------------------------------------------------
 # 📌 2. Initialize Session State & Page Configuration
 # ----------------------------------------------------------------------
 if 'all_receipts_items' not in st.session_state:
-    st.session_state.all_receipts_items = [] 
+    st.session_state.all_receipts_items = [] 
 if 'all_receipts_summary' not in st.session_state:
-    st.session_state.all_receipts_summary = []
+    st.session_state.all_receipts_summary = []
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state.chat_history = []
 
 
 st.set_page_config(
-    page_title="Smart Receipt Analyzer & Tracker 🧾",
-    layout="wide"
+    page_title="Smart Receipt Analyzer & Tracker 🧾",
+    layout="wide"
 )
 
 
@@ -142,23 +142,23 @@ st.set_page_config(
 # 📌 3. Sidebar and Main Title (Translated)
 # ----------------------------------------------------------------------
 with st.sidebar:
-    st.title("About This App")
-    st.markdown("---")
-    
-    st.subheader("How to Use")
-    st.markdown("""
-    This application helps you manage your household ledger easily by using AI.
-    1. **Upload / Manual Input:** Enter spending data via receipt image or manual form.
-    2. **Auto-Convert:** Foreign currencies are automatically converted to **KRW** using real-time rates.
-    3. **Analyze & Accumulate:** Results are added to the cumulative record.
-    4. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
-    """)
-    
-    st.markdown("---")
-    if st.session_state.all_receipts_items:
-        st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") # Summary 기준으로 갯수 표시
-        
-st.title("🧾 Household Receipt Analyzer & Cumulative Tracker")
+    st.title("About This App")
+    st.markdown("---")
+    
+    st.subheader("How to Use")
+    st.markdown("""
+    This application helps you manage your household ledger easily by using AI.
+    1. **Upload / Manual Input:** Enter spending data via receipt image or manual form.
+    2. **Auto-Convert:** Foreign currencies are automatically converted to **KRW** using real-time rates.
+    3. **Analyze & Accumulate:** Results are added to the cumulative record.
+    4. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
+    """)
+    
+    st.markdown("---")
+    if st.session_state.all_receipts_items:
+        st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") # Summary 기준으로 갯수 표시
+        
+st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
 st.markdown("---")
 
 
@@ -168,105 +168,105 @@ EXCHANGE_RATES = get_exchange_rates()
 
 # --- 1. Gemini Analysis Function (Translated Prompt) ---
 def analyze_receipt_with_gemini(_image: Image.Image):
-    """
-    Calls the Gemini model to extract data and categorize items from a receipt image.
-    """
-    
-    prompt_template = """
-    You are an expert in receipt analysis and ledger recording.
-    Analyze the following items from the receipt image and **you must extract them in JSON format**.
-    
-    **CRITICAL INSTRUCTION:** The response must only contain the **JSON code block wrapped in backticks (```json)**. Do not include any explanations, greetings, or additional text outside the JSON code block.
-    
-    1. store_name: Store Name (text)
-    2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
-    3. store_location: Store location/address (text). **If not found, use "Seoul".**
-    4. total_amount: Total Amount Paid (numbers only, no commas)
-    5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    7. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
-    8. items: List of purchased items. Each item must include:
-        - name: Item Name (text)
-        - price: Unit Price (numbers only, no commas)
-        - quantity: Quantity (numbers only)
-        - category: The most appropriate **Sub-Category** for this item, which must be **automatically classified** by you.
-    
-    **Classification Guide (Choose ONE sub-category for 'category' field):**
-    - Food: **외식, 식재료, 카페/음료, 주류** (Dining Out, Groceries, Coffee/Beverages, Alcohol)
-    - Household: **생필품, 의료/건강, 교육/서적, 통신, 공과금** (Necessities, Medical/Health, Education/Books, Communication, Utilities)
-    - Transport: **대중교통, 유류비, 택시, 주차비** (Public Transport, Fuel, Taxi, Parking)
-    - Culture: **영화/공연, 여행, 취미, 게임** (Movies/Shows, Travel, Hobby, Games)
-    - Other: **경조사, 이체/수수료, 비상금, 미분류** (Events, Transfer/Fees, Emergency Fund, Unclassified)
-        
-    JSON Schema:
-    ```json
-    {
-      "store_name": "...",
-      "date": "...",
-      "store_location": "...",
-      "total_amount": ...,
-      "tax_amount": ...,
-      "tip_amount": ...,
-      "currency_unit": "...",  
-      "items": [
-        {"name": "...", "price": ..., "quantity": ..., "category": "..."}
-      ]
-    }
-    """
-    
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[prompt_template, _image],
-            config=genai.types.GenerateContentConfig(
-                safety_settings=[
-                    {"category": HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
-                ]
-            )
-        )
-        return response.text
-    
-    except Exception as e:
-        st.error(f"Gemini API call failed: {e}")
-        return None
+    """
+    Calls the Gemini model to extract data and categorize items from a receipt image.
+    """
+    
+    prompt_template = """
+    You are an expert in receipt analysis and ledger recording.
+    Analyze the following items from the receipt image and **you must extract them in JSON format**.
+    
+    **CRITICAL INSTRUCTION:** The response must only contain the **JSON code block wrapped in backticks (```json)**. Do not include any explanations, greetings, or additional text outside the JSON code block.
+    
+    1. store_name: Store Name (text)
+    2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
+    3. store_location: Store location/address (text). **If not found, use "Seoul".**
+    4. total_amount: Total Amount Paid (numbers only, no commas)
+    5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
+    6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
+    7. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
+    8. items: List of purchased items. Each item must include:
+        - name: Item Name (text)
+        - price: Unit Price (numbers only, no commas)
+        - quantity: Quantity (numbers only)
+        - category: The most appropriate **Sub-Category** for this item, which must be **automatically classified** by you.
+    
+    **Classification Guide (Choose ONE sub-category for 'category' field):**
+    - Food: **외식, 식재료, 카페/음료, 주류** (Dining Out, Groceries, Coffee/Beverages, Alcohol)
+    - Household: **생필품, 의료/건강, 교육/서적, 통신, 공과금** (Necessities, Medical/Health, Education/Books, Communication, Utilities)
+    - Transport: **대중교통, 유류비, 택시, 주차비** (Public Transport, Fuel, Taxi, Parking)
+    - Culture: **영화/공연, 여행, 취미, 게임** (Movies/Shows, Travel, Hobby, Games)
+    - Other: **경조사, 이체/수수료, 비상금, 미분류** (Events, Transfer/Fees, Emergency Fund, Unclassified)
+        
+    JSON Schema:
+    ```json
+    {
+      "store_name": "...",
+      "date": "...",
+      "store_location": "...",
+      "total_amount": ...,
+      "tax_amount": ...,
+      "tip_amount": ...,
+      "currency_unit": "...",  
+      "items": [
+        {"name": "...", "price": ..., "quantity": ..., "category": "..."}
+      ]
+    }
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt_template, _image],
+            config=genai.types.GenerateContentConfig(
+                safety_settings=[
+                    {"category": HarmCategory.HARM_CATEGORY_HARASSMENT, "threshold": HarmBlockThreshold.BLOCK_NONE},
+                ]
+            )
+        )
+        return response.text
+    
+    except Exception as e:
+        st.error(f"Gemini API call failed: {e}")
+        return None
 
 # --- 2. AI Analysis Report Generation Function ---
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
-    """
-    Generates an AI analysis report based on aggregated spending data and detailed items.
-    """
-    summary_text = summary_df.to_string(index=False)
-    
-    prompt_template = f"""
-    You are an AI ledger analyst providing professional financial advice.
-    The user's **all accumulated spending** amounts to {total_amount:,.0f} {currency_unit}.
-    
-    Below is the category breakdown of all accumulated spending (Unit: {currency_unit}):
-    --- Spending Summary Data ---
-    {summary_text}
-    ---
-    
-    **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
-    --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
-    {detailed_items_text}
-    ---
+    """
+    Generates an AI analysis report based on aggregated spending data and detailed items.
+    """
+    summary_text = summary_df.to_string(index=False)
+    
+    prompt_template = f"""
+    You are an AI ledger analyst providing professional financial advice.
+    The user's **all accumulated spending** amounts to {total_amount:,.0f} {currency_unit}.
+    
+    Below is the category breakdown of all accumulated spending (Unit: {currency_unit}):
+    --- Spending Summary Data ---
+    {summary_text}
+    ---
+    
+    **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+    --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
+    {detailed_items_text}
+    ---
 
-    Follow these instructions and provide an analysis report in a friendly and professional tone:
-    1. Summarize the main characteristic of this total spending (e.g., the largest spending category and its driving factor based on individual items).
-    2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user. Try to mention a specific item or category-related pattern observed in the Detailed Items Data.
-    3. The response must only contain the analysis content, starting directly with the summary, without any greetings or additional explanations.
-    4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "Total spending of 1,500,000 KRW").
-    """
+    Follow these instructions and provide an analysis report in a friendly and professional tone:
+    1. Summarize the main characteristic of this total spending (e.g., the largest spending category and its driving factor based on individual items).
+    2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user. Try to mention a specific item or category-related pattern observed in the Detailed Items Data.
+    3. The response must only contain the analysis content, starting directly with the summary, without any greetings or additional explanations.
+    4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "Total spending of 1,500,000 KRW").
+    """
 
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[prompt_template],
-        )
-        return response.text
-        
-    except Exception as e:
-        return "Failed to generate analysis report."
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt_template],
+        )
+        return response.text
+        
+    except Exception as e:
+        return "Failed to generate analysis report."
 
 
 # ----------------------------------------------------------------------
@@ -277,627 +277,548 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 
 
 # ======================================================================
-#     		 	TAB 1: ANALYSIS & TRACKING
+#     		 	TAB 1: ANALYSIS & TRACKING
 # ======================================================================
 with tab1:
-    
-    # --- File Uploader and Analysis ---
-    st.subheader("📸 Upload Receipt Image (AI Analysis)")
-    uploaded_file = st.file_uploader(
-        "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
-        type=['jpg', 'png', 'jpeg'],
-        accept_multiple_files=False
-    )
-
-    # --- 👇 New Feature: Load Previous Data via CSV Upload ---
-    st.subheader("📁 Load Previous Ledger Data (CSV)")
-    uploaded_csv = st.file_uploader(
-        "Upload the previously downloaded ledger CSV file to continue accumulating records.",
-        type=['csv'],
-        accept_multiple_files=False
-    )
-
-    if uploaded_csv is not None:
-        st.subheader("📁 Load Previous Ledger Data (CSV)")
-uploaded_csv = st.file_uploader(
-    "Upload the previously downloaded **Summary Ledger CSV** file to restore historical records.",
-    type=['csv'],
-    accept_multiple_files=False 
-)
-
-if uploaded_csv is not None:
-    if st.button("🔄 Load & Restore Previous Summary Records"):
-        try:
-            # 1. Read the uploaded Summary CSV file
-            loaded_summary_df = pd.read_csv(uploaded_csv)
-            
-            # 2. Check for critical columns for Summary
-            required_summary_cols = ['id', 'Store', 'Total', 'Tax_KRW', 'Tip_KRW', 'Date', 'Original_Currency']
-            if not all(col in loaded_summary_df.columns for col in required_summary_cols):
-                st.error("❌ Invalid CSV format. Required summary columns (id, Total, Tax_KRW, Date, etc.) are missing.")
-            else:
-                # 3. Convert DataFrame back to a list of dictionaries (the format of all_receipts_summary)
-                loaded_summary_list = loaded_summary_df.to_dict('records')
-                
-                # 4. Merge the loaded list with the current session summary list
-                # 💡 중복 방지 로직: 이미 존재하는 id는 제외하고 병합 (optional, but recommended for safety)
-                current_ids = {s['id'] for s in st.session_state.all_receipts_summary}
-                new_records = [record for record in loaded_summary_list if record['id'] not in current_ids]
-                
-                st.session_state.all_receipts_summary.extend(new_records)
-                
-                # 5. CRITICAL: Detailed items list (all_receipts_items)는 비워두거나 무시합니다.
-                # 상세 분석을 위해 이 Summary 데이터를 기반으로 Total 금액을 계산하여 Items를 재구성해야 합니다.
-                
-                total_restored_count = len(new_records)
-                total_restored_krw = loaded_summary_df['Total'].sum()
-                
-                st.success(f"🎉 Successfully restored **{total_restored_count}** historical records from {uploaded_csv.name}!")
-                st.info(f"복원된 누적 금액: **{total_restored_krw:,.0f} KRW**. 이 데이터는 이제 누적 분석에 포함됩니다. **(상세 항목 데이터는 요약본에서 추론하여 재구성됩니다.)**")
-                
-                # 💡 상세 항목(Items) 재구성 (필수): Summary만으로는 상세 분석 불가능하므로, 
-                # 각 summary 레코드를 대표하는 단일 '미분류' 항목을 Items에 추가하여 차트 생성을 가능하게 함.
-
-                temp_items_for_chart = []
-                for record in new_records:
-                    temp_items_for_chart.append({
-                        'Item Name': f"Summary - {record['Store']}",
-                        'Unit Price': record['Total'], 
-                        'Quantity': 1,
-                        'AI Category': '미분류', # Summary에서는 정확한 category를 알 수 없으므로 '미분류' 사용
-                        'Total Spend': record['Total'],
-                        'Currency': 'KRW',
-                        'KRW Total Spend': record['Total'] 
-                    })
-                
-                if temp_items_for_chart:
-                    # Items list에 새로 복원된 Summary를 기반으로 만든 임시 DataFrame 추가
-                    st.session_state.all_receipts_items.append(pd.DataFrame(temp_items_for_chart))
-                
-                st.rerun() 
-
-        except Exception as e:
-            st.error(f"❌ Error processing CSV file: {e}")
-
-    
-    if uploaded_file is not None:
-        file_id = f"{uploaded_file.name}-{uploaded_file.size}"
-        
-        # 💡 중복 파일 체크
-        existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
-        is_already_analyzed = existing_summary is not None
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🖼️ Uploaded Receipt")
-            image = Image.open(uploaded_file)
-            st.image(image, use_container_width=True) 
-
-        with col2:
-            st.subheader("📊 Analysis and Recording")
-            
-            if is_already_analyzed:
-                
-                # 💡 중복된 경우, 경고 메시지 표시 및 저장된 결과 표시
-                st.warning(f"⚠️ 이 영수증 ({uploaded_file.name})은 이미 분석되어 기록되었습니다. 중복 기록은 막았습니다.")
-                analyze_button = st.button("✨ Start Receipt Analysis", disabled=True)
-                
-                # 💡 저장된 Summary 데이터로 분석 결과를 바로 표시
-                display_unit = existing_summary['Original_Currency']
-                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
-                
-                st.markdown(f"**🏠 Store Name:** {existing_summary.get('Store', 'N/A')}")
-                st.markdown(f"**📍 Location:** {existing_summary.get('Location', 'N/A')}")
-                st.markdown(f"**📅 Date:** {existing_summary.get('Date', 'N/A')}")
-                st.subheader(f"💰 Total Amount Paid: {existing_summary.get('Original_Total', 0):,.0f} {display_unit}")
-                
-                krw_tax = existing_summary.get('Tax_KRW', 0)
-                krw_tip = existing_summary.get('Tip_KRW', 0)
-                
-                if krw_tax > 0 or krw_tip > 0:
-                    # 원화 기준 금액을 다시 원화로 표시
-                    tax_display = f"{krw_tax:,.0f} KRW"
-                    tip_display = f"{krw_tip:,.0f} KRW"
-                    st.markdown(f"**🧾 Tax/VAT (KRW):** {tax_display} | **💸 Tip (KRW):** {tip_display}")
-                
-                st.info(f"누적 기록 총액 (KRW): **{existing_summary.get('Total', 0):,.0f} KRW** (부가세 제외)")
-                st.markdown("---")
-
-                # 중복이므로 추가적인 분석 로직은 실행하지 않음
-                pass 
-                
-            else:
-                # 중복이 아닌 경우, 분석 버튼 활성화
-                analyze_button = st.button("✨ Start Receipt Analysis")
+    
+    # --- File Uploader and Analysis ---
+    st.subheader("📸 Upload Receipt Image (AI Analysis)")
+    uploaded_file = st.file_uploader(
+        "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
+        type=['jpg', 'png', 'jpeg'],
+        accept_multiple_files=False 
+    )
 
 
-            if analyze_button and not is_already_analyzed:
-                
-                st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
-                with st.spinner('AI is meticulously reading the receipt...'):
-                    
-                    json_data_text = analyze_receipt_with_gemini(image)
+    if uploaded_file is not None:
+        file_id = f"{uploaded_file.name}-{uploaded_file.size}"
+        
+        # 💡 중복 파일 체크
+        existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
+        is_already_analyzed = existing_summary is not None
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🖼️ Uploaded Receipt")
+            image = Image.open(uploaded_file)
+            st.image(image, use_container_width=True) 
 
-                    if json_data_text:
-                        try:
-                            # 💡 JSON 클리닝 로직 강화
-                            cleaned_text = json_data_text.strip()
-                            if cleaned_text.startswith("```json"):
-                                cleaned_text = cleaned_text.lstrip("```json")
-                            if cleaned_text.endswith("```"):
-                                cleaned_text = cleaned_text.rstrip("```")
-                            
-                            receipt_data = json.loads(cleaned_text.strip()) 
-                            
-                            # 데이터 유효성 검사 및 기본값 설정 (safe_get_amount 사용)
-                            total_amount = safe_get_amount(receipt_data, 'total_amount')
-                            tax_amount = safe_get_amount(receipt_data, 'tax_amount')
-                            tip_amount = safe_get_amount(receipt_data, 'tip_amount')
-                            
-                            currency_unit = receipt_data.get('currency_unit', '').strip()
-                            display_unit = currency_unit if currency_unit else 'KRW'
-                            
-                            # 💡 날짜와 위치 기본값 처리 로직 추가
-                            receipt_date_str = receipt_data.get('date', '').strip()
-                            store_location_str = receipt_data.get('store_location', '').strip()
-                            
-                            # 날짜 기본값: 유효하지 않거나 빈 문자열이면 오늘 날짜 사용
-                            if not receipt_date_str or pd.isna(pd.to_datetime(receipt_date_str, errors='coerce')):
-                                final_date = datetime.date.today().strftime('%Y-%m-%d')
-                            else:
-                                final_date = receipt_date_str
-                                
-                            # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
-                            final_location = store_location_str if store_location_str else "Seoul"
+        with col2:
+            st.subheader("📊 Analysis and Recording")
+            
+            if is_already_analyzed:
+                
+                # 💡 중복된 경우, 경고 메시지 표시 및 저장된 결과 표시
+                st.warning(f"⚠️ 이 영수증 ({uploaded_file.name})은 이미 분석되어 기록되었습니다. 중복 기록은 막았습니다.")
+                analyze_button = st.button("✨ Start Receipt Analysis", disabled=True)
+                
+                # 💡 저장된 Summary 데이터로 분석 결과를 바로 표시
+                display_unit = existing_summary['Original_Currency']
+                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
+                
+                st.markdown(f"**🏠 Store Name:** {existing_summary.get('Store', 'N/A')}")
+                st.markdown(f"**📍 Location:** {existing_summary.get('Location', 'N/A')}")
+                st.markdown(f"**📅 Date:** {existing_summary.get('Date', 'N/A')}")
+                st.subheader(f"💰 Total Amount Paid: {existing_summary.get('Original_Total', 0):,.0f} {display_unit}")
+                
+                krw_tax = existing_summary.get('Tax_KRW', 0)
+                krw_tip = existing_summary.get('Tip_KRW', 0)
+                
+                if krw_tax > 0 or krw_tip > 0:
+                    # 원화 기준 금액을 다시 원화로 표시
+                    tax_display = f"{krw_tax:,.0f} KRW"
+                    tip_display = f"{krw_tip:,.0f} KRW"
+                    st.markdown(f"**🧾 Tax/VAT (KRW):** {tax_display} | **💸 Tip (KRW):** {tip_display}")
+                
+                st.info(f"누적 기록 총액 (KRW): **{existing_summary.get('Total', 0):,.0f} KRW** (부가세 제외)")
+                st.markdown("---")
 
-                            # --- Main Information Display ---
-                            st.success("✅ Analysis Complete! Check the ledger data below.")
-                            
-                            st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
-                            st.markdown(f"**📍 Location:** {final_location}") 
-                            st.markdown(f"**📅 Date:** {final_date}") 
-                            st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
-                            
-                            # 💡 세금/팁 정보 표시
-                            if tax_amount > 0 or tip_amount > 0:
-                                tax_display = f"{tax_amount:,.2f} {display_unit}"
-                                tip_display = f"{tip_amount:,.2f} {display_unit}"
-                                st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
-                            
-                            # 💡 Display Applied Exchange Rate for AI Analysis
-                            if display_unit != 'KRW':
-                                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
-                                st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
-                                
-                            st.markdown("---")
+                # 중복이므로 추가적인 분석 로직은 실행하지 않음
+                pass 
+                
+            else:
+                # 중복이 아닌 경우, 분석 버튼 활성화
+                analyze_button = st.button("✨ Start Receipt Analysis")
 
 
-                            if 'items' in receipt_data and receipt_data['items']:
-                                items_df = pd.DataFrame(receipt_data['items'])
-                                
-                                items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
-                                items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
-                                items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
-                                items_df['Total Spend'] = items_df['Unit Price'] * items_df['Quantity']
-                                
-                                st.subheader("🛒 Detailed Item Breakdown (Category Editable)")
-                                
-                                edited_df = st.data_editor(
-                                    items_df,
-                                    column_config={
-                                        "AI Category": st.column_config.SelectboxColumn(
-                                            "Final Category",
-                                            help="Select the correct sub-category for this item.",
-                                            width="medium",
-                                            options=ALL_CATEGORIES,
-                                            required=True,
-                                        )
-                                    },
-                                    disabled=['Item Name', 'Unit Price', 'Quantity', 'Total Spend'],
-                                    hide_index=True,
-                                    use_container_width=True
-                                )
-                                
-                                # 📢 Currency Conversion for Accumulation (AI Analysis)
-                                edited_df['Currency'] = display_unit
-                                edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
-                                edited_df['KRW Total Spend'] = edited_df.apply(
-                                    lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
-                                )
-                                edited_df = edited_df.drop(columns=['Total Spend Numeric'])
+            if analyze_button and not is_already_analyzed:
+                
+                st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
+                with st.spinner('AI is meticulously reading the receipt...'):
+                    
+                    json_data_text = analyze_receipt_with_gemini(image)
 
-                                # 💡 세금과 팁도 원화로 환산
-                                krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
-                                krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
-                                
-                                # ** Accumulate Data: Store the edited DataFrame **
-                                st.session_state.all_receipts_items.append(edited_df)
-                                
-                                # 💡 최종 수정: 한국 영수증의 경우 Tax_KRW는 Total 금액에 다시 합산하지 않고 Tip만 합산합니다.
-                                final_total_krw = edited_df['KRW Total Spend'].sum() + krw_tip_total
-                                
-                                st.session_state.all_receipts_summary.append({
-                                    'id': file_id, 
-                                    'filename': uploaded_file.name,
-                                    'Store': receipt_data.get('store_name', 'N/A'),
-                                    'Total': final_total_krw, # 아이템 총합 + Tip만 더함 (Tax 제외)
-                                    'Tax_KRW': krw_tax_total, 
-                                    'Tip_KRW': krw_tip_total, 
-                                    'Currency': 'KRW', 
-                                    'Date': final_date, 
-                                    'Location': final_location, 
-                                    'Original_Total': total_amount, 
-                                    'Original_Currency': display_unit 
-                                })
+                    if json_data_text:
+                        try:
+                            # 💡 JSON 클리닝 로직 강화
+                            cleaned_text = json_data_text.strip()
+                            if cleaned_text.startswith("```json"):
+                                cleaned_text = cleaned_text.lstrip("```json")
+                            if cleaned_text.endswith("```"):
+                                cleaned_text = cleaned_text.rstrip("```")
+                            
+                            receipt_data = json.loads(cleaned_text.strip()) 
+                            
+                            # 데이터 유효성 검사 및 기본값 설정 (safe_get_amount 사용)
+                            total_amount = safe_get_amount(receipt_data, 'total_amount')
+                            tax_amount = safe_get_amount(receipt_data, 'tax_amount')
+                            tip_amount = safe_get_amount(receipt_data, 'tip_amount')
+                            
+                            currency_unit = receipt_data.get('currency_unit', '').strip()
+                            display_unit = currency_unit if currency_unit else 'KRW'
+                            
+                            # 💡 날짜와 위치 기본값 처리 로직 추가
+                            receipt_date_str = receipt_data.get('date', '').strip()
+                            store_location_str = receipt_data.get('store_location', '').strip()
+                            
+                            # 날짜 기본값: 유효하지 않거나 빈 문자열이면 오늘 날짜 사용
+                            if not receipt_date_str or pd.isna(pd.to_datetime(receipt_date_str, errors='coerce')):
+                                final_date = datetime.date.today().strftime('%Y-%m-%d')
+                            else:
+                                final_date = receipt_date_str
+                                
+                            # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
+                            final_location = store_location_str if store_location_str else "Seoul"
 
-                                st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
-
-                            else:
-                                st.warning("Item list could not be found in the analysis result.")
-
-                        except json.JSONDecodeError:
-                            st.error("❌ Gemini analysis result is not a valid JSON format. (JSON parsing error)")
-                        except Exception as e:
-                            st.error(f"Unexpected error occurred during data processing: {e}")
-                    else:
-                        st.error("Analysis failed to complete. Please try again.")
-
-    st.markdown("---")
-    
-    # ----------------------------------------------------------------------
-    # --- Manual Expense Input (Translated) ---
-    # ----------------------------------------------------------------------
-    st.subheader("📝 Manual Expense Input (No Receipt)")
-    
-    st.info("""
-    **✅ Input Guide**
-    Record your expense details easily.
-    **💡 Category Scheme (Sub-Category)**
-    """ + get_category_guide()
-    )
-
-    with st.form("manual_expense_form", clear_on_submit=True):
-        col_m1, col_m2, col_m3 = st.columns(3)
-        
-        with col_m1:
-            manual_date = st.date_input("📅 Expense Date", value=datetime.date.today())
-            manual_description = st.text_input("📝 Expense Item (Description)", placeholder="e.g., Lunch, Groceries")
-            
-        with col_m2:
-            manual_store = st.text_input("🏠 Store/Merchant Name", placeholder="e.g., Local Diner, Starbucks")
-            manual_amount = st.number_input("💰 Expense Amount (Numbers Only)", min_value=0.0, step=100.0, format="%.2f")
-            
-        with col_m3:
-            manual_category = st.selectbox("📌 Category (Sub-Category)", options=ALL_CATEGORIES, index=ALL_CATEGORIES.index('미분류'))
-            manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
-            manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") 
-            
-        submitted = st.form_submit_button("✅ Add to Ledger")
-
-        if submitted:
-            if manual_description and manual_amount > 0 and manual_category:
-                
-                # 📢 Currency Conversion for Manual Input
-                krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
-                applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0)
-
-                # 1. Prepare Item DataFrame 
-                manual_df = pd.DataFrame([{
-                    'Item Name': manual_description,
-                    'Unit Price': manual_amount, 
-                    'Quantity': 1,
-                    'AI Category': manual_category,
-                    'Total Spend': manual_amount,
-                    'Currency': manual_currency,
-                    'KRW Total Spend': krw_total 
-                }])
-                
-                # 2. Prepare Summary Data
-                manual_summary = {
-                    'id': f"manual-{pd.Timestamp.now().timestamp()}", 
-                    'filename': 'Manual Entry',
-                    'Store': manual_store if manual_store else 'Manual Entry',
-                    'Total': krw_total, # 수동 입력은 총액을 그대로 사용 (Tip/Tax는 0)
-                    'Tax_KRW': 0.0, 
-                    'Tip_KRW': 0.0, 
-                    'Currency': 'KRW', 
-                    'Date': manual_date.strftime('%Y-%m-%d'),
-                    'Location': manual_location if manual_location else "Manual Input Location", 
-                    'Original_Total': manual_amount, 
-                    'Original_Currency': manual_currency 
-                }
-                
-                # 3. Accumulate Data
-                st.session_state.all_receipts_items.append(manual_df)
-                st.session_state.all_receipts_summary.append(manual_summary)
-                
-                # 💡 Modified Success Message
-                if manual_currency != 'KRW':
-                    rate_info = f" (Applied Rate: 1 {manual_currency} = {applied_rate:,.4f} KRW)"
-                else:
-                    rate_info = ""
-                    
-                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} expense recorded ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}. Added to ledger.")
-                st.rerun()
-            else:
-                st.error("❌ 'Expense Item', 'Expense Amount', and 'Category' are required fields. Amount must be greater than 0.")
-
-    st.markdown("---")
-    
-    # ----------------------------------------------------------------------
-    # --- 5. Cumulative Data Analysis Section (ALL ANALYSIS IS KRW BASED) ---
-    # ----------------------------------------------------------------------
-
-    if st.session_state.all_receipts_items:
-        st.markdown("---")
-        st.title("📚 Cumulative Spending Analysis Report")
-        
-        # 1. Create a single DataFrame from all accumulated items
-        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
-        
-        # Defensive coding: KRW Total Spend must exist for analysis
-        if 'KRW Total Spend' not in all_items_df_numeric.columns:
-             st.warning("Old data structure detected. Recalculating KRW totals...")
-             all_items_df_numeric['KRW Total Spend'] = all_items_df_numeric.apply(
-                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
-             )
-
-        display_currency_label = 'KRW'
+                            # --- Main Information Display ---
+                            st.success("✅ Analysis Complete! Check the ledger data below.")
+                            
+                            st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
+                            st.markdown(f"**📍 Location:** {final_location}") 
+                            st.markdown(f"**📅 Date:** {final_date}") 
+                            st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
+                            
+                            # 💡 세금/팁 정보 표시
+                            if tax_amount > 0 or tip_amount > 0:
+                                tax_display = f"{tax_amount:,.2f} {display_unit}"
+                                tip_display = f"{tip_amount:,.2f} {display_unit}"
+                                st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
+                            
+                            # 💡 Display Applied Exchange Rate for AI Analysis
+                            if display_unit != 'KRW':
+                                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
+                                st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
+                                
+                            st.markdown("---")
 
 
-        # A. Display Accumulated Receipts Summary Table (Translated/Modified)
-        st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
-        summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
-        
-        # Ensure compatibility with older sessions that lack columns
-        if 'Original_Total' not in summary_df.columns:
-            summary_df['Original_Total'] = summary_df['Total'] 
-        if 'Original_Currency' not in summary_df.columns:
-            summary_df['Original_Currency'] = 'KRW' 
-        if 'Tax_KRW' not in summary_df.columns:
-            summary_df['Tax_KRW'] = 0.0
-        if 'Tip_KRW' not in summary_df.columns:
-            summary_df['Tip_KRW'] = 0.0
-        if 'Location' not in summary_df.columns:
-            summary_df['Location'] = 'N/A'
-            
-        # Conditional formatting for Amount Paid
-        def format_amount_paid(row):
-            krw_amount = f"{row['Total']:,.0f} KRW"
-            
-            if row['Original_Currency'] != 'KRW':
-                original_amount = f"{row['Original_Total']:,.2f} {row['Original_Currency']}"
-                return f"{original_amount} / {krw_amount}"
-            
-            return krw_amount
-        
-        summary_df['Amount Paid'] = summary_df.apply(format_amount_paid, axis=1)
+                            if 'items' in receipt_data and receipt_data['items']:
+                                items_df = pd.DataFrame(receipt_data['items'])
+                                
+                                items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
+                                items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
+                                items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
+                                items_df['Total Spend'] = items_df['Unit Price'] * items_df['Quantity']
+                                
+                                st.subheader("🛒 Detailed Item Breakdown (Category Editable)")
+                                
+                                edited_df = st.data_editor(
+                                    items_df,
+                                    column_config={
+                                        "AI Category": st.column_config.SelectboxColumn(
+                                            "Final Category",
+                                            help="Select the correct sub-category for this item.",
+                                            width="medium",
+                                            options=ALL_CATEGORIES,
+                                            required=True,
+                                        )
+                                    },
+                                    disabled=['Item Name', 'Unit Price', 'Quantity', 'Total Spend'],
+                                    hide_index=True,
+                                    use_container_width=True
+                                )
+                                
+                                # 📢 Currency Conversion for Accumulation (AI Analysis)
+                                edited_df['Currency'] = display_unit
+                                edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
+                                edited_df['KRW Total Spend'] = edited_df.apply(
+                                    lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
+                                )
+                                edited_df = edited_df.drop(columns=['Total Spend Numeric'])
 
-        
-        summary_df = summary_df.drop(columns=['id'])
-        # 💡 Location 컬럼을 추가하여 표시
-        summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
-        summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
+                                # 💡 세금과 팁도 원화로 환산
+                                krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
+                                krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
+                                
+                                # ** Accumulate Data: Store the edited DataFrame **
+                                st.session_state.all_receipts_items.append(edited_df)
+                                
+                                # 💡 최종 수정: 한국 영수증의 경우 Tax_KRW는 Total 금액에 다시 합산하지 않고 Tip만 합산합니다.
+                                final_total_krw = edited_df['KRW Total Spend'].sum() + krw_tip_total
+                                
+                                st.session_state.all_receipts_summary.append({
+                                    'id': file_id, 
+                                    'filename': uploaded_file.name,
+                                    'Store': receipt_data.get('store_name', 'N/A'),
+                                    'Total': final_total_krw, # 아이템 총합 + Tip만 더함 (Tax 제외)
+                                    'Tax_KRW': krw_tax_total, 
+                                    'Tip_KRW': krw_tip_total, 
+                                    'Currency': 'KRW', 
+                                    'Date': final_date, 
+                                    'Location': final_location, 
+                                    'Original_Total': total_amount, 
+                                    'Original_Currency': display_unit 
+                                })
 
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-        
-        st.markdown("---")
-        
-        st.subheader("🛒 Integrated Detail Items") 
-        
-        all_items_df_display = all_items_df_numeric.copy()
-        
-        all_items_df_display['Original Total'] = all_items_df_display.apply(
-            lambda row: f"{row['Total Spend']:,.2f} {row['Currency']}", axis=1
-        )
-        all_items_df_display['KRW Equivalent'] = all_items_df_display['KRW Total Spend'].apply(
-            lambda x: f"{x:,.0f} KRW"
-        )
-        
-        st.dataframe(
-            all_items_df_display[['Item Name', 'Original Total', 'KRW Equivalent', 'AI Category']], 
-            use_container_width=True, 
-            hide_index=True
-        )
+                                st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
 
-        # 2. Aggregate spending by category and visualize (KRW based)
-        category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
-        category_summary.columns = ['Category', 'Amount']
-        
-        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (여기서는 시각화를 위해 부가세를 포함)
-        # 단, Item 합계와 Tax 합계를 구분해서 표시합니다.
-        total_tax_krw = summary_df['Tax (KRW)'].sum()
-        total_tip_krw = summary_df['Tip (KRW)'].sum()
-        
-        if total_tax_krw > 0:
-            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', total_tax_krw]
-        if total_tip_krw > 0:
-            category_summary.loc[len(category_summary)] = ['팁 (Tip)', total_tip_krw]
-            
-        # --- Display Summary Table ---
-        st.subheader("💰 Spending Summary by Category (Items + Tax + Tip)") 
-        category_summary_display = category_summary.copy()
-        category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
-        st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
+                            else:
+                                st.warning("Item list could not be found in the analysis result.")
 
-        # --- Visualization (Charts use KRW Amount) ---
-        col_chart, col_pie = st.columns(2)
-        
-        with col_chart:
-            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})")
-            st.bar_chart(category_summary.set_index('Category'))
-            
-        with col_pie:
-            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})")
-            chart_data = category_summary[category_summary['Amount'] > 0] 
-            
-            if not chart_data.empty:
-                fig = px.pie(
-                    chart_data, values='Amount', names='Category', 
-                    title=f'Spending Distribution by Category (Unit: {display_currency_label})', hole=.3, 
-                )
-                fig.update_traces(textposition='inside', textinfo='percent+label')
-                fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No spending data found to generate the pie chart.")
+                        except json.JSONDecodeError:
+                            st.error("❌ Gemini analysis result is not a valid JSON format. (JSON parsing error)")
+                        except Exception as e:
+                            st.error(f"Unexpected error occurred during data processing: {e}")
+                    else:
+                        st.error("Analysis failed to complete. Please try again.")
 
-        # --- Spending Trend Over Time Chart (KRW based) ---
-        st.markdown("---")
-        st.subheader("📈 Spending Trend Over Time")
-        
-        summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
-        
-        if not summary_df_raw.empty:
-            
-            summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
-            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
-            
-            daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
-            daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
-            daily_spending.columns = ['Date', 'Daily Total Spend']
-            
-            if not daily_spending.empty:
-                fig_trend = px.line(
-                    daily_spending, x='Date', y='Daily Total Spend',
-                    title=f'Daily Spending Trend (Unit: {display_currency_label})',
-                    labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
-                    markers=True
-                )
-                fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-                st.plotly_chart(fig_trend, use_container_width=True)
-            else:
-                st.warning("Date data is not available or not properly formatted to show the trend chart.")
-        
-        # 3. Generate AI Analysis Report
-        st.markdown("---")
-        st.subheader("🤖 AI Expert's Analysis Summary")
-        
-        total_spent = category_summary['Amount'].sum()
-        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'KRW Total Spend']]
-        items_text = detailed_items_for_ai.to_string(index=False)
-        
-        ai_report = generate_ai_analysis(
-            summary_df=category_summary,
-            store_name="Multiple Stores",
-            total_amount=total_spent,
-            currency_unit=display_currency_label, 
-            detailed_items_text=items_text
-        )
-        
-        st.info(ai_report)
-        
-        # 4. Reset and Download Buttons
-        st.markdown("---")
-        @st.cache_data
-        def convert_df_to_csv(df):
-            return df.to_csv(index=False, encoding='utf-8-sig')
+    st.markdown("---")
+    
+    # ----------------------------------------------------------------------
+    # --- Manual Expense Input (Translated) ---
+    # ----------------------------------------------------------------------
+    st.subheader("📝 Manual Expense Input (No Receipt)")
+    
+    st.info("""
+    **✅ Input Guide**
+    Record your expense details easily.
+    **💡 Category Scheme (Sub-Category)**
+    """ + get_category_guide()
+    )
 
-        # 💡 수정 1: 다운로드할 데이터프레임을 summary_df로 변경
-        # summary_df는 이미 상단에서 Tax, Tip, Total, Date, Store 등 모든 필요한 정보를 포함하고 있습니다.
-        summary_df_download = pd.DataFrame(st.session_state.all_receipts_summary)
+    with st.form("manual_expense_form", clear_on_submit=True):
+        col_m1, col_m2, col_m3 = st.columns(3)
+        
+        with col_m1:
+            manual_date = st.date_input("📅 Expense Date", value=datetime.date.today())
+            manual_description = st.text_input("📝 Expense Item (Description)", placeholder="e.g., Lunch, Groceries")
+            
+        with col_m2:
+            manual_store = st.text_input("🏠 Store/Merchant Name", placeholder="e.g., Local Diner, Starbucks")
+            manual_amount = st.number_input("💰 Expense Amount (Numbers Only)", min_value=0.0, step=100.0, format="%.2f")
+            
+        with col_m3:
+            manual_category = st.selectbox("📌 Category (Sub-Category)", options=ALL_CATEGORIES, index=ALL_CATEGORIES.index('미분류'))
+            manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
+            manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") 
+            
+        submitted = st.form_submit_button("✅ Add to Ledger")
 
-        # 💡 수정 2: 파일 이름 형식을 "receipt_record_오늘날짜"로 변경
-        today_date = pd.Timestamp.now().strftime('%Y%m%d')
-        csv_filename = f"receipt_record_{today_date}.csv"
+        if submitted:
+            if manual_description and manual_amount > 0 and manual_category:
+                
+                # 📢 Currency Conversion for Manual Input
+                krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
+                applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0)
 
-        csv = convert_df_to_csv(summary_df_download) # summary_df를 CSV로 변환
+                # 1. Prepare Item DataFrame 
+                manual_df = pd.DataFrame([{
+                    'Item Name': manual_description,
+                    'Unit Price': manual_amount, 
+                    'Quantity': 1,
+                    'AI Category': manual_category,
+                    'Total Spend': manual_amount,
+                    'Currency': manual_currency,
+                    'KRW Total Spend': krw_total 
+                }])
+                
+                # 2. Prepare Summary Data
+                manual_summary = {
+                    'id': f"manual-{pd.Timestamp.now().timestamp()}", 
+                    'filename': 'Manual Entry',
+                    'Store': manual_store if manual_store else 'Manual Entry',
+                    'Total': krw_total, # 수동 입력은 총액을 그대로 사용 (Tip/Tax는 0)
+                    'Tax_KRW': 0.0, 
+                    'Tip_KRW': 0.0, 
+                    'Currency': 'KRW', 
+                    'Date': manual_date.strftime('%Y-%m-%d'),
+                    'Location': manual_location if manual_location else "Manual Input Location", 
+                    'Original_Total': manual_amount, 
+                    'Original_Currency': manual_currency 
+                }
+                
+                # 3. Accumulate Data
+                st.session_state.all_receipts_items.append(manual_df)
+                st.session_state.all_receipts_summary.append(manual_summary)
+                
+                # 💡 Modified Success Message
+                if manual_currency != 'KRW':
+                    rate_info = f" (Applied Rate: 1 {manual_currency} = {applied_rate:,.4f} KRW)"
+                else:
+                    rate_info = ""
+                    
+                st.success(f"🎉 {manual_date.strftime('%Y-%m-%d')} expense recorded ({manual_description}: {manual_amount:,.2f} {manual_currency} -> **{krw_total:,.0f} KRW**){rate_info}. Added to ledger.")
+                st.rerun()
+            else:
+                st.error("❌ 'Expense Item', 'Expense Amount', and 'Category' are required fields. Amount must be greater than 0.")
 
-        st.download_button(
-            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
-            data=csv,
-            file_name=csv_filename, # 파일 이름 변경 적용
-            mime='text/csv',
-        )
+    st.markdown("---")
+    
+    # ----------------------------------------------------------------------
+    # --- 5. Cumulative Data Analysis Section (ALL ANALYSIS IS KRW BASED) ---
+    # ----------------------------------------------------------------------
 
-        if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
-            st.session_state.all_receipts_items = []
-            st.session_state.all_receipts_summary = []
-            st.session_state.chat_history = [] 
-            st.rerun() 
+    if st.session_state.all_receipts_items:
+        st.markdown("---")
+        st.title("📚 Cumulative Spending Analysis Report")
+        
+        # 1. Create a single DataFrame from all accumulated items
+        all_items_df_numeric = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
+        # Defensive coding: KRW Total Spend must exist for analysis
+        if 'KRW Total Spend' not in all_items_df_numeric.columns:
+             st.warning("Old data structure detected. Recalculating KRW totals...")
+             all_items_df_numeric['KRW Total Spend'] = all_items_df_numeric.apply(
+                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
+             )
+
+        display_currency_label = 'KRW'
+
+
+        # A. Display Accumulated Receipts Summary Table (Translated/Modified)
+        st.subheader(f"Total {len(st.session_state.all_receipts_summary)} Receipts Logged (Summary)")
+        summary_df = pd.DataFrame(st.session_state.all_receipts_summary)
+        
+        # Ensure compatibility with older sessions that lack columns
+        if 'Original_Total' not in summary_df.columns:
+            summary_df['Original_Total'] = summary_df['Total'] 
+        if 'Original_Currency' not in summary_df.columns:
+            summary_df['Original_Currency'] = 'KRW' 
+        if 'Tax_KRW' not in summary_df.columns:
+            summary_df['Tax_KRW'] = 0.0
+        if 'Tip_KRW' not in summary_df.columns:
+            summary_df['Tip_KRW'] = 0.0
+        if 'Location' not in summary_df.columns:
+            summary_df['Location'] = 'N/A'
+            
+        # Conditional formatting for Amount Paid
+        def format_amount_paid(row):
+            krw_amount = f"{row['Total']:,.0f} KRW"
+            
+            if row['Original_Currency'] != 'KRW':
+                original_amount = f"{row['Original_Total']:,.2f} {row['Original_Currency']}"
+                return f"{original_amount} / {krw_amount}"
+            
+            return krw_amount
+        
+        summary_df['Amount Paid'] = summary_df.apply(format_amount_paid, axis=1)
+
+        
+        summary_df = summary_df.drop(columns=['id'])
+        # 💡 Location 컬럼을 추가하여 표시
+        summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
+        summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
+
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        st.subheader("🛒 Integrated Detail Items") 
+        
+        all_items_df_display = all_items_df_numeric.copy()
+        
+        all_items_df_display['Original Total'] = all_items_df_display.apply(
+            lambda row: f"{row['Total Spend']:,.2f} {row['Currency']}", axis=1
+        )
+        all_items_df_display['KRW Equivalent'] = all_items_df_display['KRW Total Spend'].apply(
+            lambda x: f"{x:,.0f} KRW"
+        )
+        
+        st.dataframe(
+            all_items_df_display[['Item Name', 'Original Total', 'KRW Equivalent', 'AI Category']], 
+            use_container_width=True, 
+            hide_index=True
+        )
+
+        # 2. Aggregate spending by category and visualize (KRW based)
+        category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
+        category_summary.columns = ['Category', 'Amount']
+        
+        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (여기서는 시각화를 위해 부가세를 포함)
+        # 단, Item 합계와 Tax 합계를 구분해서 표시합니다.
+        total_tax_krw = summary_df['Tax (KRW)'].sum()
+        total_tip_krw = summary_df['Tip (KRW)'].sum()
+        
+        if total_tax_krw > 0:
+            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', total_tax_krw]
+        if total_tip_krw > 0:
+            category_summary.loc[len(category_summary)] = ['팁 (Tip)', total_tip_krw]
+            
+        # --- Display Summary Table ---
+        st.subheader("💰 Spending Summary by Category (Items + Tax + Tip)") 
+        category_summary_display = category_summary.copy()
+        category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
+        st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
+
+        # --- Visualization (Charts use KRW Amount) ---
+        col_chart, col_pie = st.columns(2)
+        
+        with col_chart:
+            st.subheader(f"Bar Chart Visualization (Unit: {display_currency_label})")
+            st.bar_chart(category_summary.set_index('Category'))
+            
+        with col_pie:
+            st.subheader(f"Pie Chart Visualization (Unit: {display_currency_label})")
+            chart_data = category_summary[category_summary['Amount'] > 0] 
+            
+            if not chart_data.empty:
+                fig = px.pie(
+                    chart_data, values='Amount', names='Category', 
+                    title=f'Spending Distribution by Category (Unit: {display_currency_label})', hole=.3, 
+                )
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No spending data found to generate the pie chart.")
+
+        # --- Spending Trend Over Time Chart (KRW based) ---
+        st.markdown("---")
+        st.subheader("📈 Spending Trend Over Time")
+        
+        summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
+        
+        if not summary_df_raw.empty:
+            
+            summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
+            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
+            
+            daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
+            daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
+            daily_spending.columns = ['Date', 'Daily Total Spend']
+            
+            if not daily_spending.empty:
+                fig_trend = px.line(
+                    daily_spending, x='Date', y='Daily Total Spend',
+                    title=f'Daily Spending Trend (Unit: {display_currency_label})',
+                    labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
+                    markers=True
+                )
+                fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+                st.plotly_chart(fig_trend, use_container_width=True)
+            else:
+                st.warning("Date data is not available or not properly formatted to show the trend chart.")
+        
+        # 3. Generate AI Analysis Report
+        st.markdown("---")
+        st.subheader("🤖 AI Expert's Analysis Summary")
+        
+        total_spent = category_summary['Amount'].sum()
+        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'KRW Total Spend']]
+        items_text = detailed_items_for_ai.to_string(index=False)
+        
+        ai_report = generate_ai_analysis(
+            summary_df=category_summary,
+            store_name="Multiple Stores",
+            total_amount=total_spent,
+            currency_unit=display_currency_label, 
+            detailed_items_text=items_text
+        )
+        
+        st.info(ai_report)
+        
+        # 4. Reset and Download Buttons
+        st.markdown("---")
+        @st.cache_data
+        def convert_df_to_csv(df):
+            return df.to_csv(index=False, encoding='utf-8-sig')
+
+        csv = convert_df_to_csv(all_items_df_numeric) 
+        st.download_button(
+            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
+            data=csv,
+            file_name=f"all_receipts_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime='text/csv',
+        )
+
+        if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
+            st.session_state.all_receipts_items = []
+            st.session_state.all_receipts_summary = []
+            st.session_state.chat_history = [] 
+            st.rerun() 
 
 # ======================================================================
-#     		 	TAB 2: FINANCIAL EXPERT CHAT
+#     		 	TAB 2: FINANCIAL EXPERT CHAT
 # ======================================================================
 with tab2:
-    st.header("💬 Financial Expert Chat")
-    
-    if not st.session_state.all_receipts_items:
-        st.warning("Please analyze at least one receipt in the 'Analysis & Tracking' tab before starting a consultation.")
-    else:
-        # Chat uses KRW-based analysis data
-        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
-        
-        # Defensive check for KRW Total Spend column
-        if 'KRW Total Spend' not in all_items_df.columns:
-             all_items_df['KRW Total Spend'] = all_items_df.apply(
-                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
-             )
-        
-        category_summary = all_items_df.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
-        
-        # 💡 채팅 분석을 위해 세금/팁 항목을 category_summary에 추가
-        summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
-        if 'Tax_KRW' in summary_df_for_chat.columns:
-            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', summary_df_for_chat['Tax_KRW'].sum()]
-        if 'Tip_KRW' in summary_df_for_chat.columns:
-            category_summary.loc[len(category_summary)] = ['팁 (Tip)', summary_df_for_chat['Tip_KRW'].sum()]
+    st.header("💬 Financial Expert Chat")
+    
+    if not st.session_state.all_receipts_items:
+        st.warning("Please analyze at least one receipt in the 'Analysis & Tracking' tab before starting a consultation.")
+    else:
+        # Chat uses KRW-based analysis data
+        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
+        # Defensive check for KRW Total Spend column
+        if 'KRW Total Spend' not in all_items_df.columns:
+             all_items_df['KRW Total Spend'] = all_items_df.apply(
+                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
+             )
+        
+        category_summary = all_items_df.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
+        
+        # 💡 채팅 분석을 위해 세금/팁 항목을 category_summary에 추가
+        summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
+        if 'Tax_KRW' in summary_df_for_chat.columns:
+            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', summary_df_for_chat['Tax_KRW'].sum()]
+        if 'Tip_KRW' in summary_df_for_chat.columns:
+            category_summary.loc[len(category_summary)] = ['팁 (Tip)', summary_df_for_chat['Tip_KRW'].sum()]
 
-        total_spent = category_summary['KRW Total Spend'].sum()
-        summary_text = category_summary.to_string(index=False)
-        display_currency_label_chat = 'KRW'
-        
-        # Prepare detailed item data for the chatbot's system instruction
-        detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
-        items_text_for_chat = detailed_items_for_chat.to_string(index=False)
-        
-        # MODIFIED SYSTEM INSTRUCTION
-        system_instruction = f"""
-        You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
-        
-        The user's cumulative spending data for the current session is as follows (All converted to KRW):
-        - Total Accumulated Spending: {total_spent:,.0f} {display_currency_label_chat}
-        - Category Breakdown (Category, Amount, all in {display_currency_label_chat}):
-        {summary_text}
-        
-        **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
-        --- Detailed Items Data (AI Category, Item Name, KRW Total Spend) ---
-        {items_text_for_chat}
-        ---
+        total_spent = category_summary['KRW Total Spend'].sum()
+        summary_text = category_summary.to_string(index=False)
+        display_currency_label_chat = 'KRW'
+        
+        # Prepare detailed item data for the chatbot's system instruction
+        detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
+        items_text_for_chat = detailed_items_for_chat.to_string(index=False)
+        
+        # MODIFIED SYSTEM INSTRUCTION
+        system_instruction = f"""
+        You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
+        
+        The user's cumulative spending data for the current session is as follows (All converted to KRW):
+        - Total Accumulated Spending: {total_spent:,.0f} {display_currency_label_chat}
+        - Category Breakdown (Category, Amount, all in {display_currency_label_chat}):
+        {summary_text}
+        
+        **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+        --- Detailed Items Data (AI Category, Item Name, KRW Total Spend) ---
+        {items_text_for_chat}
+        ---
 
-        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). Keep your tone professional yet encouraging. **Always include the currency unit (KRW) when referring to monetary amounts.**
-        """
+        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). Keep your tone professional yet encouraging. **Always include the currency unit (KRW) when referring to monetary amounts.**
+        """
 
-        # Display chat history
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-        # Process user input
-        if prompt := st.chat_input("Ask for financial advice or review your spending..."):
-            
-            st.session_state.chat_history.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+        # Process user input
+        if prompt := st.chat_input("Ask for financial advice or review your spending..."):
+            
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-            with st.chat_message("assistant"):
-                with st.spinner("Expert is thinking..."):
-                    try:
-                        contents = [
-                            {"role": "user", "parts": [{"text": msg["content"]}]} 
-                            for msg in st.session_state.chat_history
-                        ]
-                        
-                        response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=contents,
-                            config=genai.types.GenerateContentConfig(
-                                system_instruction=system_instruction
-                            )
-                        )
-                        
-                        st.markdown(response.text)
-                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
-                        
-                    except Exception as e:
-                        st.error(f"Chatbot API call failed: {e}")
+            with st.chat_message("assistant"):
+                with st.spinner("Expert is thinking..."):
+                    try:
+                        contents = [
+                            {"role": "user", "parts": [{"text": msg["content"]}]} 
+                            for msg in st.session_state.chat_history
+                        ]
+                        
+                        response = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=contents,
+                            config=genai.types.GenerateContentConfig(
+                                system_instruction=system_instruction
+                            )
+                        )
+                        
+                        st.markdown(response.text)
+                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                        
+                    except Exception as e:
+                        st.error(f"Chatbot API call failed: {e}")
