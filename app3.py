@@ -24,7 +24,7 @@ except KeyError:
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
-
+# 💡 수정된 부분: 이제 exchange_rates는 {Currency Code: 1 Foreign Unit = X KRW}의 형태로 저장됩니다.
 @st.cache_data
 def get_exchange_rates():
     """
@@ -33,7 +33,9 @@ def get_exchange_rates():
     """
     
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
+    # KRW의 기준은 1 KRW = X KRW (1)
     exchange_rates = {'KRW': 1.0} 
+    # Fallback Rates는 1 단위 외화당 KRW 값입니다.
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20}
 
     try:
@@ -41,19 +43,27 @@ def get_exchange_rates():
         response.raise_for_status() 
         data = response.json()
         conversion_rates = data.get('conversion_rates', {})
+        
+        # 1. KRW Rate (USD -> KRW)
         krw_per_usd = conversion_rates.get('KRW', 0)
         
         if krw_per_usd == 0 or data.get('result') != 'success':
-             raise ValueError("API returned incomplete or failed data.")
+              raise ValueError("API returned incomplete or failed data.")
 
+        # 2. Store USD rate: 1 USD = krw_per_usd KRW
         exchange_rates['USD'] = krw_per_usd 
         
+        # 3. Calculate EUR rate: 1 EUR = (KRW/USD) / (EUR/USD) = KRW/EUR
         eur_rate_vs_usd = conversion_rates.get('EUR', 0)
         if eur_rate_vs_usd > 0:
+            # krw_per_usd는 (KRW/USD)를 의미하며, eur_rate_vs_usd는 (EUR/USD)를 의미합니다.
+            # 1 EUR = krw_per_usd / eur_rate_vs_usd KRW 입니다.
             exchange_rates['EUR'] = krw_per_usd / eur_rate_vs_usd
         
+        # 4. Calculate JPY rate: 1 JPY = (KRW/USD) / (JPY/USD) = KRW/JPY
         jpy_rate_vs_usd = conversion_rates.get('JPY', 0)
         if jpy_rate_vs_usd > 0:
+            # 1 JPY = krw_per_usd / jpy_rate_vs_usd KRW 입니다.
             exchange_rates['JPY'] = krw_per_usd / jpy_rate_vs_usd
             
         st.sidebar.success(f"✅ Real-time rates loaded. (1 USD = {krw_per_usd:,.2f} KRW)")
@@ -69,10 +79,16 @@ def get_exchange_rates():
         return FALLBACK_RATES
 
 
+# 💡 수정된 부분: rates 딕셔너리에서 1 외화당 KRW 값을 가져와 곱합니다.
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
+    
+    # rates.get(currency_upper)는 '1 외화당 KRW' 값입니다. 
+    # 만약 해당 통화가 없으면 기본값으로 KRW의 환율인 1.0을 사용합니다.
     rate = rates.get(currency_upper, rates.get('KRW', 1.0))
+    
+    # 금액 * 환율(1외화당 KRW) = 최종 KRW 금액
     return amount * rate
 
 # Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
@@ -248,7 +264,7 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 
 
 # ======================================================================
-#             TAB 1: ANALYSIS & TRACKING
+#     		 	TAB 1: ANALYSIS & TRACKING
 # ======================================================================
 with tab1:
     
@@ -345,6 +361,7 @@ with tab1:
                                 
                                 # 📢 Currency Conversion for Accumulation (AI Analysis)
                                 edited_df['Currency'] = display_unit
+                                # 💡 Total Spend는 이미 외화 기준으로 계산되어 있습니다.
                                 edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
                                 edited_df['KRW Total Spend'] = edited_df.apply(
                                     lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
@@ -622,7 +639,7 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-#             TAB 2: FINANCIAL EXPERT CHAT
+#     		 	TAB 2: FINANCIAL EXPERT CHAT
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
