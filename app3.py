@@ -54,13 +54,13 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
         'id': f"imported-{pd.Timestamp.now().timestamp()}",
         'filename': 'Imported CSV',
         'Store': store_name,
-        'Total': final_total_krw, 
+        'Total': final_total_krw,
         'Tax_KRW': 0.0, # CSV 상세 기록에는 Tax/Tip 정보가 없으므로 0으로 가정
         'Tip_KRW': 0.0,
-        'Currency': 'KRW', 
-        'Date': current_date, 
-        'Location': 'Imported Location', 
-        'Original_Total': final_total_krw, 
+        'Currency': 'KRW',
+        'Date': current_date,
+        'Location': 'Imported Location',
+        'Original_Total': final_total_krw,
         'Original_Currency': 'KRW' 
     }
     return summary_data
