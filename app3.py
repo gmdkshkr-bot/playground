@@ -55,7 +55,7 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
         'filename': 'Imported CSV',
         'Store': store_name,
         'Total': final_total_krw, 
-        'Tax_KRW': 0.0,  # CSV 상세 기록에는 Tax/Tip 정보가 없으므로 0으로 가정
+        'Tax_KRW': 0.0, # CSV 상세 기록에는 Tax/Tip 정보가 없으므로 0으로 가정
         'Tip_KRW': 0.0,
         'Currency': 'KRW', 
         'Date': current_date, 
