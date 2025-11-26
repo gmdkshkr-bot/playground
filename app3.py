@@ -111,7 +111,7 @@ def get_category_guide():
     guide = ""
     categories = {
         "Food": ["외식 (Dining Out)", "식재료 (Groceries)", "카페/음료 (Coffee/Beverages)", "주류 (Alcohol)"],
-        "Household": ["생필품 (Necessities)", "이료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
+        "Household": ["생필품 (Necessities)", "의료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
         "Transport": ["대중교통 (Public Transport)", "유류비 (Fuel)", "택시 (Taxi)", "주차비 (Parking)"],
         "Culture": ["영화/공연 (Movies/Shows)", "여행 (Travel)", "취미 (Hobby)", "게임 (Games)"],
         "Other": ["경조사 (Events)", "이체/수수료 (Transfer/Fees)", "비상금 (Emergency Fund)", "미분류 (Unclassified)"],
@@ -156,7 +156,7 @@ with st.sidebar:
     
     st.markdown("---")
     if st.session_state.all_receipts_items:
-        st.info(f"Currently tracking {len(st.session_state.all_receipts_items)} receipts.")
+        st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") # Summary 기준으로 갯수 표시
         
 st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
 st.markdown("---")
@@ -292,8 +292,11 @@ with tab1:
 
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
-        is_already_analyzed = any(s.get('id') == file_id for s in st.session_state.all_receipts_summary)
-
+        
+        # 💡 중복 파일 체크
+        existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
+        is_already_analyzed = existing_summary is not None
+        
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("🖼️ Uploaded Receipt")
@@ -304,9 +307,37 @@ with tab1:
             st.subheader("📊 Analysis and Recording")
             
             if is_already_analyzed:
-                st.warning("⚠️ This receipt has already been analyzed and added to the record. Please upload a different file.")
+                
+                # 💡 중복된 경우, 경고 메시지 표시 및 저장된 결과 표시
+                st.warning(f"⚠️ 이 영수증 ({uploaded_file.name})은 이미 분석되어 기록되었습니다. 중복 기록은 막았습니다.")
                 analyze_button = st.button("✨ Start Receipt Analysis", disabled=True)
+                
+                # 💡 저장된 Summary 데이터로 분석 결과를 바로 표시
+                display_unit = existing_summary['Original_Currency']
+                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
+                
+                st.markdown(f"**🏠 Store Name:** {existing_summary.get('Store', 'N/A')}")
+                st.markdown(f"**📍 Location:** {existing_summary.get('Location', 'N/A')}")
+                st.markdown(f"**📅 Date:** {existing_summary.get('Date', 'N/A')}")
+                st.subheader(f"💰 Total Amount Paid: {existing_summary.get('Original_Total', 0):,.0f} {display_unit}")
+                
+                krw_tax = existing_summary.get('Tax_KRW', 0)
+                krw_tip = existing_summary.get('Tip_KRW', 0)
+                
+                if krw_tax > 0 or krw_tip > 0:
+                    # 원화 기준 금액을 다시 원화로 표시
+                    tax_display = f"{krw_tax:,.0f} KRW"
+                    tip_display = f"{krw_tip:,.0f} KRW"
+                    st.markdown(f"**🧾 Tax/VAT (KRW):** {tax_display} | **💸 Tip (KRW):** {tip_display}")
+                
+                st.info(f"누적 기록 총액 (KRW): **{existing_summary.get('Total', 0):,.0f} KRW** (부가세 제외)")
+                st.markdown("---")
+
+                # 중복이므로 추가적인 분석 로직은 실행하지 않음
+                pass 
+                
             else:
+                # 중복이 아닌 경우, 분석 버튼 활성화
                 analyze_button = st.button("✨ Start Receipt Analysis")
 
 
@@ -353,8 +384,8 @@ with tab1:
                             st.success("✅ Analysis Complete! Check the ledger data below.")
                             
                             st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
-                            st.markdown(f"**📍 Location:** {final_location}") # 💡 위치 표시 추가
-                            st.markdown(f"**📅 Date:** {final_date}") # 💡 처리된 날짜 표시
+                            st.markdown(f"**📍 Location:** {final_location}") 
+                            st.markdown(f"**📅 Date:** {final_date}") 
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
                             
                             # 💡 세금/팁 정보 표시
@@ -412,7 +443,7 @@ with tab1:
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
                                 
-                                # 💡 최종 수정: 한국 영수증의 경우 Tax_KRW는 Total 금액에 다시 합산하지 않습니다. Tip만 합산합니다.
+                                # 💡 최종 수정: 한국 영수증의 경우 Tax_KRW는 Total 금액에 다시 합산하지 않고 Tip만 합산합니다.
                                 final_total_krw = edited_df['KRW Total Spend'].sum() + krw_tip_total
                                 
                                 st.session_state.all_receipts_summary.append({
