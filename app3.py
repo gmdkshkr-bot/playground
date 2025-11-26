@@ -24,19 +24,18 @@ except KeyError:
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
-# 💡 수정된 부분: 이제 exchange_rates는 {Currency Code: 1 Foreign Unit = X KRW}의 형태로 저장됩니다.
+# 💡 수정된 부분: USD 환율 추출/계산 방어 로직 강화
 @st.cache_data
 def get_exchange_rates():
     """
     Fetches real-time exchange rates using ExchangeRate-API (USD Base).
-    Returns a dictionary: {currency_code: KRW_equivalent}
+    Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
-    # KRW의 기준은 1 KRW = X KRW (1)
+    # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
+    FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
-    # Fallback Rates는 1 단위 외화당 KRW 값입니다.
-    FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20}
 
     try:
         response = requests.get(url, timeout=10)
@@ -44,29 +43,28 @@ def get_exchange_rates():
         data = response.json()
         conversion_rates = data.get('conversion_rates', {})
         
-        # 1. KRW Rate (USD -> KRW)
+        # 1. KRW Rate (USD -> KRW) 추출
         krw_per_usd = conversion_rates.get('KRW', 0)
-        
+        usd_per_usd = conversion_rates.get('USD', 1.0) # 1.0 이어야 함
+
+        # 데이터 유효성 검사 강화
         if krw_per_usd == 0 or data.get('result') != 'success':
-              raise ValueError("API returned incomplete or failed data.")
+              raise ValueError("API returned incomplete or failed data or KRW rate is missing.")
 
         # 2. Store USD rate: 1 USD = krw_per_usd KRW
-        exchange_rates['USD'] = krw_per_usd 
+        exchange_rates['USD'] = krw_per_usd / usd_per_usd # 1 USD = X KRW
         
-        # 3. Calculate EUR rate: 1 EUR = (KRW/USD) / (EUR/USD) = KRW/EUR
+        # 3. Calculate EUR rate: 1 EUR = (KRW/USD) / (EUR/USD)
         eur_rate_vs_usd = conversion_rates.get('EUR', 0)
         if eur_rate_vs_usd > 0:
-            # krw_per_usd는 (KRW/USD)를 의미하며, eur_rate_vs_usd는 (EUR/USD)를 의미합니다.
-            # 1 EUR = krw_per_usd / eur_rate_vs_usd KRW 입니다.
             exchange_rates['EUR'] = krw_per_usd / eur_rate_vs_usd
         
-        # 4. Calculate JPY rate: 1 JPY = (KRW/USD) / (JPY/USD) = KRW/JPY
+        # 4. Calculate JPY rate: 1 JPY = (KRW/USD) / (JPY/USD)
         jpy_rate_vs_usd = conversion_rates.get('JPY', 0)
         if jpy_rate_vs_usd > 0:
-            # 1 JPY = krw_per_usd / jpy_rate_vs_usd KRW 입니다.
             exchange_rates['JPY'] = krw_per_usd / jpy_rate_vs_usd
             
-        st.sidebar.success(f"✅ Real-time rates loaded. (1 USD = {krw_per_usd:,.2f} KRW)")
+        st.sidebar.success(f"✅ Real-time rates loaded. (1 USD = {exchange_rates.get('USD', 0):,.2f} KRW)")
 
         return exchange_rates
 
@@ -79,16 +77,17 @@ def get_exchange_rates():
         return FALLBACK_RATES
 
 
-# 💡 수정된 부분: rates 딕셔너리에서 1 외화당 KRW 값을 가져와 곱합니다.
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
     
-    # rates.get(currency_upper)는 '1 외화당 KRW' 값입니다. 
-    # 만약 해당 통화가 없으면 기본값으로 KRW의 환율인 1.0을 사용합니다.
+    # rates 딕셔너리에는 '1 외화당 KRW' 값이 저장되어 있습니다.
     rate = rates.get(currency_upper, rates.get('KRW', 1.0))
     
-    # 금액 * 환율(1외화당 KRW) = 최종 KRW 금액
+    # 만약 rate가 0이면 오류 방지
+    if rate == 0:
+        return amount * rates.get('USD', 1300) # USD 환율 (fallback) 사용
+        
     return amount * rate
 
 # Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
