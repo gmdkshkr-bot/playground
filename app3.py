@@ -3,7 +3,7 @@ import json
 import pandas as pd
 from PIL import Image
 import io
-import datetime 
+import datetime
 import numpy as np
 import plotly.express as px
 import requests
