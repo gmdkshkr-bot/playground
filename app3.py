@@ -111,7 +111,7 @@ def get_category_guide():
     guide = ""
     categories = {
         "Food": ["외식 (Dining Out)", "식재료 (Groceries)", "카페/음료 (Coffee/Beverages)", "주류 (Alcohol)"],
-        "Household": ["생필품 (Necessities)", "의료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
+        "Household": ["생필품 (Necessities)", "이료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
         "Transport": ["대중교통 (Public Transport)", "유류비 (Fuel)", "택시 (Taxi)", "주차비 (Parking)"],
         "Culture": ["영화/공연 (Movies/Shows)", "여행 (Travel)", "취미 (Hobby)", "게임 (Games)"],
         "Other": ["경조사 (Events)", "이체/수수료 (Transfer/Fees)", "비상금 (Emergency Fund)", "미분류 (Unclassified)"],
@@ -412,17 +412,19 @@ with tab1:
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
                                 
-                                # 💡 세금과 팁, 날짜, 위치 포함하여 Summary에 저장
+                                # 💡 최종 수정: 한국 영수증의 경우 Tax_KRW는 Total 금액에 다시 합산하지 않습니다. Tip만 합산합니다.
+                                final_total_krw = edited_df['KRW Total Spend'].sum() + krw_tip_total
+                                
                                 st.session_state.all_receipts_summary.append({
                                     'id': file_id, 
                                     'filename': uploaded_file.name,
                                     'Store': receipt_data.get('store_name', 'N/A'),
-                                    'Total': edited_df['KRW Total Spend'].sum() + krw_tax_total + krw_tip_total, # 아이템 총합 + 세금 + 팁
+                                    'Total': final_total_krw, # 아이템 총합 + Tip만 더함 (Tax 제외)
                                     'Tax_KRW': krw_tax_total, 
                                     'Tip_KRW': krw_tip_total, 
                                     'Currency': 'KRW', 
-                                    'Date': final_date, # 💡 처리된 날짜 사용
-                                    'Location': final_location, # 💡 처리된 위치 사용
+                                    'Date': final_date, 
+                                    'Location': final_location, 
                                     'Original_Total': total_amount, 
                                     'Original_Currency': display_unit 
                                 })
@@ -467,7 +469,7 @@ with tab1:
         with col_m3:
             manual_category = st.selectbox("📌 Category (Sub-Category)", options=ALL_CATEGORIES, index=ALL_CATEGORIES.index('미분류'))
             manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
-            manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") # 💡 수동 입력에도 위치 추가
+            manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") 
             
         submitted = st.form_submit_button("✅ Add to Ledger")
 
@@ -494,12 +496,12 @@ with tab1:
                     'id': f"manual-{pd.Timestamp.now().timestamp()}", 
                     'filename': 'Manual Entry',
                     'Store': manual_store if manual_store else 'Manual Entry',
-                    'Total': krw_total, 
+                    'Total': krw_total, # 수동 입력은 총액을 그대로 사용 (Tip/Tax는 0)
                     'Tax_KRW': 0.0, 
                     'Tip_KRW': 0.0, 
                     'Currency': 'KRW', 
                     'Date': manual_date.strftime('%Y-%m-%d'),
-                    'Location': manual_location if manual_location else "Manual Input Location", # 💡 수동 위치 기록
+                    'Location': manual_location if manual_location else "Manual Input Location", 
                     'Original_Total': manual_amount, 
                     'Original_Currency': manual_currency 
                 }
@@ -555,7 +557,7 @@ with tab1:
             summary_df['Tax_KRW'] = 0.0
         if 'Tip_KRW' not in summary_df.columns:
             summary_df['Tip_KRW'] = 0.0
-        if 'Location' not in summary_df.columns: # 💡 위치 호환성 확보
+        if 'Location' not in summary_df.columns:
             summary_df['Location'] = 'N/A'
             
         # Conditional formatting for Amount Paid
@@ -601,7 +603,8 @@ with tab1:
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
-        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시
+        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (여기서는 시각화를 위해 부가세를 포함)
+        # 단, Item 합계와 Tax 합계를 구분해서 표시합니다.
         total_tax_krw = summary_df['Tax (KRW)'].sum()
         total_tip_krw = summary_df['Tip (KRW)'].sum()
         
