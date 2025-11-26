@@ -298,74 +298,68 @@ with tab1:
     )
 
     if uploaded_csv is not None:
-        if st.button("🔄 Load & Merge Previous Records"):
-            try:
-                # 1. Read the uploaded CSV file
-                # Assuming the CSV structure is the same as the downloaded one (all_items_df_numeric)
-                previous_df = pd.read_csv(uploaded_csv)
+        st.subheader("📁 Load Previous Ledger Data (CSV)")
+uploaded_csv = st.file_uploader(
+    "Upload the previously downloaded **Summary Ledger CSV** file to restore historical records.",
+    type=['csv'],
+    accept_multiple_files=False 
+)
+
+if uploaded_csv is not None:
+    if st.button("🔄 Load & Restore Previous Summary Records"):
+        try:
+            # 1. Read the uploaded Summary CSV file
+            loaded_summary_df = pd.read_csv(uploaded_csv)
+            
+            # 2. Check for critical columns for Summary
+            required_summary_cols = ['id', 'Store', 'Total', 'Tax_KRW', 'Tip_KRW', 'Date', 'Original_Currency']
+            if not all(col in loaded_summary_df.columns for col in required_summary_cols):
+                st.error("❌ Invalid CSV format. Required summary columns (id, Total, Tax_KRW, Date, etc.) are missing.")
+            else:
+                # 3. Convert DataFrame back to a list of dictionaries (the format of all_receipts_summary)
+                loaded_summary_list = loaded_summary_df.to_dict('records')
                 
-                # 2. Check for critical columns
-                required_cols = ['Item Name', 'AI Category', 'KRW Total Spend']
-                if not all(col in previous_df.columns for col in required_cols):
-                    st.error("❌ Invalid CSV format. Required columns (Item Name, AI Category, KRW Total Spend, etc.) are missing.")
-                else:
-                    # 3. Add necessary default columns if they are missing (for compatibility)
-                    if 'Currency' not in previous_df.columns:
-                        previous_df['Currency'] = 'KRW'
-                    if 'Total Spend' not in previous_df.columns:
-                        # For old files without original currency, assume KRW equivalent
-                        previous_df['Total Spend'] = previous_df['KRW Total Spend']
-                        
-                    # 4. Filter for necessary item columns for session_state.all_receipts_items
-                    # We need all columns in the original structure, even if empty/defaulted
-                    item_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
-                    # Ensure all required columns are present before appending
-                    for col in item_cols:
-                        if col not in previous_df.columns:
-                            # Fill missing numeric columns with 0, others with 'N/A'
-                            previous_df[col] = 0.0 if col in ['Unit Price', 'Quantity'] else 'N/A'
+                # 4. Merge the loaded list with the current session summary list
+                # 💡 중복 방지 로직: 이미 존재하는 id는 제외하고 병합 (optional, but recommended for safety)
+                current_ids = {s['id'] for s in st.session_state.all_receipts_summary}
+                new_records = [record for record in loaded_summary_list if record['id'] not in current_ids]
+                
+                st.session_state.all_receipts_summary.extend(new_records)
+                
+                # 5. CRITICAL: Detailed items list (all_receipts_items)는 비워두거나 무시합니다.
+                # 상세 분석을 위해 이 Summary 데이터를 기반으로 Total 금액을 계산하여 Items를 재구성해야 합니다.
+                
+                total_restored_count = len(new_records)
+                total_restored_krw = loaded_summary_df['Total'].sum()
+                
+                st.success(f"🎉 Successfully restored **{total_restored_count}** historical records from {uploaded_csv.name}!")
+                st.info(f"복원된 누적 금액: **{total_restored_krw:,.0f} KRW**. 이 데이터는 이제 누적 분석에 포함됩니다. **(상세 항목 데이터는 요약본에서 추론하여 재구성됩니다.)**")
+                
+                # 💡 상세 항목(Items) 재구성 (필수): Summary만으로는 상세 분석 불가능하므로, 
+                # 각 summary 레코드를 대표하는 단일 '미분류' 항목을 Items에 추가하여 차트 생성을 가능하게 함.
 
-                    df_to_merge = previous_df[item_cols]
-                    
-                    # 5. Merge the loaded data into the current session state
-                    # Note: We append the entire DataFrame as a single entry for simplicity, 
-                    # but a more robust method might involve parsing and creating summary entries too.
-                    # For this solution, we only merge the detailed items (all_receipts_items).
-                    
-                    # Prevent merging if the data is already a single concatenated DataFrame
-                    # We should check if the loaded DF contains multiple receipts, which is complex.
-                    # Simplification: Assume loaded CSV is a full detailed item list and append it.
-                    st.session_state.all_receipts_items.append(df_to_merge)
-                    
-                    # 💡 Update Summary (CRITICAL: Summaries are required for Total/Tax/Tip/Date info)
-                    # The downloaded CSV only contains *item details*. 
-                    # To accurately reflect the history, we need to manually create a summary entry 
-                    # or assume the loaded data is only for aggregation/chat.
-                    # Given the scope, let's create a single 'Historical Data' summary entry.
-                    
-                    total_krw_from_csv = df_to_merge['KRW Total Spend'].sum()
-                    
-                    st.session_state.all_receipts_summary.append({
-                        'id': f"history-csv-{pd.Timestamp.now().timestamp()}", 
-                        'filename': uploaded_csv.name,
-                        'Store': 'Historical Data (CSV Load)',
-                        'Total': total_krw_from_csv, 
-                        'Tax_KRW': 0.0, # Cannot know original tax/tip from item list
-                        'Tip_KRW': 0.0,
-                        'Currency': 'KRW', 
-                        'Date': 'Historic Range',
-                        'Location': 'Various Locations',
-                        'Original_Total': total_krw_from_csv, 
-                        'Original_Currency': 'KRW' 
+                temp_items_for_chart = []
+                for record in new_records:
+                    temp_items_for_chart.append({
+                        'Item Name': f"Summary - {record['Store']}",
+                        'Unit Price': record['Total'], 
+                        'Quantity': 1,
+                        'AI Category': '미분류', # Summary에서는 정확한 category를 알 수 없으므로 '미분류' 사용
+                        'Total Spend': record['Total'],
+                        'Currency': 'KRW',
+                        'KRW Total Spend': record['Total'] 
                     })
-                    
-                    st.success(f"🎉 Successfully loaded **{len(previous_df)}** historical items from {uploaded_csv.name} and merged them! Total historical spend: **{total_krw_from_csv:,.0f} KRW**.")
-                    st.info("The loaded data is now included in the Cumulative Analysis Report.")
-                    st.rerun() 
+                
+                if temp_items_for_chart:
+                    # Items list에 새로 복원된 Summary를 기반으로 만든 임시 DataFrame 추가
+                    st.session_state.all_receipts_items.append(pd.DataFrame(temp_items_for_chart))
+                
+                st.rerun() 
 
-            except Exception as e:
-                st.error(f"❌ Error processing CSV file: {e}")
+        except Exception as e:
+            st.error(f"❌ Error processing CSV file: {e}")
 
+    
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
         
@@ -797,13 +791,22 @@ with tab1:
         st.markdown("---")
         @st.cache_data
         def convert_df_to_csv(df):
-            return df.to_csv(index=False, encoding='utf-8-sig')
+        return df.to_csv(index=False, encoding='utf-8-sig')
 
-        csv = convert_df_to_csv(all_items_df_numeric) 
+        # 💡 수정 1: 다운로드할 데이터프레임을 summary_df로 변경
+        # summary_df는 이미 상단에서 Tax, Tip, Total, Date, Store 등 모든 필요한 정보를 포함하고 있습니다.
+        summary_df_download = pd.DataFrame(st.session_state.all_receipts_summary)
+
+        # 💡 수정 2: 파일 이름 형식을 "receipt_record_오늘날짜"로 변경
+        today_date = pd.Timestamp.now().strftime('%Y%m%d')
+        csv_filename = f"receipt_record_{today_date}.csv"
+
+        csv = convert_df_to_csv(summary_df_download) # summary_df를 CSV로 변환
+
         st.download_button(
             label="⬇️ Download Full Cumulative Ledger Data (CSV)",
             data=csv,
-            file_name=f"all_receipts_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            file_name=csv_filename, # 파일 이름 변경 적용
             mime='text/csv',
         )
 
