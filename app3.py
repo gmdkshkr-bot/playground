@@ -26,13 +26,6 @@ client = genai.Client(api_key=API_KEY)
 
 @st.cache_data
 
-def safe_get_amount(data, key):
-    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
-    value = data.get(key, 0)
-    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
-    numeric_value = pd.to_numeric(value, errors='coerce')
-    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
-    return numeric_value if not pd.isna(numeric_value) else 0.0
 
 
 def get_exchange_rates():
@@ -264,6 +257,16 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
         
     except Exception as e:
         return "Failed to generate analysis report."
+
+
+def safe_get_amount(data, key):
+    """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
+    value = data.get(key, 0)
+    # pd.to_numeric을 사용하여 숫자로 변환 시도. 변환 실패 시 NaN 반환.
+    numeric_value = pd.to_numeric(value, errors='coerce')
+    # NaN이면 0.0을 사용하고, 아니면 해당 숫자 값을 사용
+    return numeric_value if not pd.isna(numeric_value) else 0.0
+
 
 
 # ----------------------------------------------------------------------
