@@ -25,6 +25,47 @@ except KeyError:
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
+
+# 💡 신규 함수: 업로드된 아이템 데이터프레임에서 Summary 데이터를 재구성하는 헬퍼 함수
+def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
+    """아이템 DataFrame에서 Summary 단위를 추출하고 재구성합니다."""
+    
+    # 🚨 필수 컬럼 존재 여부 확인
+    required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 
+                     'Total Spend', 'Currency', 'KRW Total Spend']
+    if not all(col in item_df.columns for col in required_cols):
+        return None
+
+    # 데이터프레임의 첫 번째 행에서 Summary에 필요한 메타데이터를 추출한다고 가정
+    # (실제로는 Store, Date, Location 정보가 필요하지만,
+    # 내보낸 CSV에는 이 정보가 없으므로 임의의 값 또는 기본값을 사용해야 합니다.
+    # 여기서는 "Imported Record"로 통일합니다.)
+    
+    first_row = item_df.iloc[0] if not item_df.empty else {}
+    
+    # KRW Total Spend 합계 = Total (KRW)
+    final_total_krw = item_df['KRW Total Spend'].sum()
+    
+    # CSV에 Store, Date, Currency 정보가 없으므로 임의로 생성
+    store_name = 'Imported Record'
+    current_date = datetime.date.today().strftime('%Y-%m-%d')
+    
+    summary_data = {
+        'id': f"imported-{pd.Timestamp.now().timestamp()}",
+        'filename': 'Imported CSV',
+        'Store': store_name,
+        'Total': final_total_krw, 
+        'Tax_KRW': 0.0,  # CSV 상세 기록에는 Tax/Tip 정보가 없으므로 0으로 가정
+        'Tip_KRW': 0.0,
+        'Currency': 'KRW', 
+        'Date': current_date, 
+        'Location': 'Imported Location', 
+        'Original_Total': final_total_krw, 
+        'Original_Currency': 'KRW' 
+    }
+    return summary_data
+
+
 # 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
 def safe_get_amount(data, key):
     """단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다."""
@@ -119,6 +160,8 @@ def get_category_guide():
     for main, subs in categories.items():
         guide += f"- **{main}**: {', '.join(subs)}\n"
     return guide
+
+
 
 
 # ----------------------------------------------------------------------
@@ -280,6 +323,47 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 #     		 	TAB 1: ANALYSIS & TRACKING
 # ======================================================================
 with tab1:
+
+    # 💡 신규 기능: CSV 파일 업로드 섹션 시작
+    st.subheader("📁 Load Previous Record (CSV Upload)")
+    
+    uploaded_csv_file = st.file_uploader(
+        "Upload a previously downloaded ledger CSV file (e.g., record_YYYYMMDD.csv)",
+        type=['csv'],
+        accept_multiple_files=False,
+        key='csv_uploader' # 키 추가
+    )
+
+    if uploaded_csv_file is not None:
+        try:
+            # CSV 파일을 DataFrame으로 읽기
+            imported_df = pd.read_csv(uploaded_csv_file)
+            
+            # 필수 컬럼 검증
+            required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+            if not all(col in imported_df.columns for col in required_cols):
+                st.error("❌ 업로드된 CSV 파일에 필수 컬럼(Item Name, AI Category, KRW Total Spend 등)이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
+                uploaded_csv_file = None # 업로드 무효화
+            
+            if uploaded_csv_file is not None:
+                # 1. 아이템 목록에 추가
+                # CSV 파일은 이미 하나의 큰 아이템 DataFrame이므로, 이 전체를 하나의 리스트 요소로 추가
+                st.session_state.all_receipts_items.append(imported_df)
+                
+                # 2. Summary 데이터 재구성 및 추가 (하나의 큰 묶음으로 간주)
+                summary_data = regenerate_summary_data(imported_df)
+                if summary_data:
+                    st.session_state.all_receipts_summary.append(summary_data)
+                    st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
+                    st.rerun()
+                else:
+                    st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
+            
+        except Exception as e:
+            st.error(f"❌ CSV 파일을 처리하는 중 오류가 발생했습니다: {e}")
+            
+    st.markdown("---")
+    # 💡 신규 기능: CSV 파일 업로드 섹션 끝
     
     # --- File Uploader and Analysis ---
     st.subheader("📸 Upload Receipt Image (AI Analysis)")
