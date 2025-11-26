@@ -295,6 +295,7 @@ with tab1:
         "Upload the previously downloaded ledger CSV file to continue accumulating records.",
         type=['csv'],
         accept_multiple_files=False
+    )
 
     if uploaded_csv is not None:
         if st.button("🔄 Load & Merge Previous Records"):
