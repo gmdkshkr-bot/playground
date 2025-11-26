@@ -316,15 +316,24 @@ with tab1:
     # 💡 신규 기능: CSV 파일 업로드 섹션 시작
     st.subheader("📁 Load Previous Record (CSV Upload)")
     
-    # key='csv_uploader'를 사용하여 파일 업로드 위젯의 상태를 명시적으로 제어합니다.
+    # 파일을 불러온 후, 처리 상태를 저장할 임시 키
+    if 'csv_load_triggered' not in st.session_state:
+        st.session_state.csv_load_triggered = False
+        
     uploaded_csv_file = st.file_uploader(
         "Upload a previously downloaded ledger CSV file (e.g., record_YYYYMMDD.csv)",
         type=['csv'],
         accept_multiple_files=False,
-        key='csv_uploader' # 키 유지
+        key='csv_uploader', 
+        # 💡 on_change 콜백 함수를 사용하여 파일이 업로드되면 플래그를 True로 설정
+        on_change=lambda: st.session_state.__setitem__('csv_load_triggered', True)
     )
 
-    if uploaded_csv_file is not None:
+    # 💡 로직 분리: 파일이 업로드되었고, 아직 처리되지 않았다면 처리 시작
+    if st.session_state.csv_load_triggered and uploaded_csv_file is not None:
+        
+        st.session_state.csv_load_triggered = False # 재실행 방지를 위해 즉시 초기화
+        
         try:
             # CSV 파일을 DataFrame으로 읽기
             imported_df = pd.read_csv(uploaded_csv_file)
@@ -333,21 +342,25 @@ with tab1:
             required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
             
             if not all(col in imported_df.columns for col in required_cols):
-                st.error("❌ 업로드된 CSV 파일에 필수 컬럼(Item Name, AI Category, KRW Total Spend 등)이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
+                st.error("❌ 업로드된 CSV 파일에 필수 컬럼이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
             else:
                 # 1. 아이템 목록에 추가
                 st.session_state.all_receipts_items.append(imported_df)
                 
-                # 2. Summary 데이터 재구성 및 추가 (하나의 큰 묶음으로 간주)
+                # 2. Summary 데이터 재구성 및 추가
                 summary_data = regenerate_summary_data(imported_df)
                 if summary_data:
                     st.session_state.all_receipts_summary.append(summary_data)
                     st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
                     
-                    # 🚨 무한 루프 방지 핵심 수정: 파일 처리 완료 후 위젯 상태 초기화
-                    # key를 이용하여 위젯 상태를 직접 지웁니다.
-                    st.session_state['csv_uploader'] = None
-                    st.rerun() # 변경 사항을 반영하기 위해 페이지 재실행
+                    # 💡 파일 업로드 위젯의 값 자체를 None으로 만드는 대신, 위젯 키를 초기화하는 콜백을 호출 (재실행 유발)
+                    # 여기서는 성공했으므로 st.rerun()을 호출하여 화면에 반영합니다.
+                    # ⚠️ 파일 업로더의 상태를 수동으로 None으로 설정하는 것은 위에서 언급한 오류를 유발하므로,
+                    #    가장 간단하게는 재실행 후 위젯이 다시 그려지면서 초기화되도록 유도합니다.
+                    
+                    # 파일 업로더가 다시 None으로 돌아가도록 돕기 위해, 임시 컨테이너를 사용하거나
+                    # st.rerun()을 바로 호출하여 새로운 프레임에서 위젯이 None으로 다시 그려지도록 합니다.
+                    st.rerun()
                 else:
                     st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
             
