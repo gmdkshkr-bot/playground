@@ -24,7 +24,6 @@ except KeyError:
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
-# 💡 수정된 부분: USD 환율 추출/계산 방어 로직 강화
 @st.cache_data
 def get_exchange_rates():
     """
@@ -33,7 +32,7 @@ def get_exchange_rates():
     """
     
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
-    # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
+    # Fallback Rates는 1 단위 외화당 KRW 값입니다.
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
 
@@ -45,14 +44,14 @@ def get_exchange_rates():
         
         # 1. KRW Rate (USD -> KRW) 추출
         krw_per_usd = conversion_rates.get('KRW', 0)
-        usd_per_usd = conversion_rates.get('USD', 1.0) # 1.0 이어야 함
+        usd_per_usd = conversion_rates.get('USD', 1.0) 
 
         # 데이터 유효성 검사 강화
         if krw_per_usd == 0 or data.get('result') != 'success':
               raise ValueError("API returned incomplete or failed data or KRW rate is missing.")
 
         # 2. Store USD rate: 1 USD = krw_per_usd KRW
-        exchange_rates['USD'] = krw_per_usd / usd_per_usd # 1 USD = X KRW
+        exchange_rates['USD'] = krw_per_usd / usd_per_usd 
         
         # 3. Calculate EUR rate: 1 EUR = (KRW/USD) / (EUR/USD)
         eur_rate_vs_usd = conversion_rates.get('EUR', 0)
@@ -81,12 +80,10 @@ def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
     
-    # rates 딕셔너리에는 '1 외화당 KRW' 값이 저장되어 있습니다.
     rate = rates.get(currency_upper, rates.get('KRW', 1.0))
     
-    # 만약 rate가 0이면 오류 방지
     if rate == 0:
-        return amount * rates.get('USD', 1300) # USD 환율 (fallback) 사용
+        return amount * rates.get('USD', 1300) 
         
     return amount * rate
 
@@ -173,8 +170,10 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     1. store_name: Store Name (text)
     2. date: Date (YYYY-MM-DD format)
     3. total_amount: Total Amount Paid (numbers only, no commas)
-    4. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
-    5. items: List of purchased items. Each item must include:
+    4. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
+    5. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
+    6. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
+    7. items: List of purchased items. Each item must include:
         - name: Item Name (text)
         - price: Unit Price (numbers only, no commas)
         - quantity: Quantity (numbers only)
@@ -193,6 +192,8 @@ def analyze_receipt_with_gemini(_image: Image.Image):
       "store_name": "...",
       "date": "...",
       "total_amount": ...,
+      "tax_amount": ...,
+      "tip_amount": ...,
       "currency_unit": "...",  
       "items": [
         {"name": "...", "price": ..., "quantity": ..., "category": "..."}
@@ -310,19 +311,26 @@ with tab1:
                             
                             receipt_data = json.loads(json_data_text)
                             
-                            if not isinstance(receipt_data.get('total_amount'), (int, float)):
-                                 receipt_data['total_amount'] = np.nan 
-
-                            # --- Main Information Display ---
-                            st.success("✅ Analysis Complete! Check the ledger data below.")
+                            # 데이터 유효성 검사 및 기본값 설정
+                            total_amount = pd.to_numeric(receipt_data.get('total_amount'), errors='coerce').fillna(0)
+                            tax_amount = pd.to_numeric(receipt_data.get('tax_amount'), errors='coerce').fillna(0) # 💡 추가된 부분
+                            tip_amount = pd.to_numeric(receipt_data.get('tip_amount'), errors='coerce').fillna(0) # 💡 추가된 부분
                             
                             currency_unit = receipt_data.get('currency_unit', '').strip()
                             display_unit = currency_unit if currency_unit else 'KRW'
-                            total_amount = receipt_data.get('total_amount', 0)
+                            
+                            # --- Main Information Display ---
+                            st.success("✅ Analysis Complete! Check the ledger data below.")
                             
                             st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
                             st.markdown(f"**📅 Date:** {receipt_data.get('date', 'N/A')}")
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
+                            
+                            # 💡 세금/팁 정보 표시
+                            if tax_amount > 0 or tip_amount > 0:
+                                tax_display = f"{tax_amount:,.2f} {display_unit}"
+                                tip_display = f"{tip_amount:,.2f} {display_unit}"
+                                st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
                             
                             # 💡 Display Applied Exchange Rate for AI Analysis
                             if display_unit != 'KRW':
@@ -360,22 +368,29 @@ with tab1:
                                 
                                 # 📢 Currency Conversion for Accumulation (AI Analysis)
                                 edited_df['Currency'] = display_unit
-                                # 💡 Total Spend는 이미 외화 기준으로 계산되어 있습니다.
                                 edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
                                 edited_df['KRW Total Spend'] = edited_df.apply(
                                     lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
                                 )
                                 edited_df = edited_df.drop(columns=['Total Spend Numeric'])
 
-
+                                # 💡 세금과 팁도 원화로 환산하여 데이터프레임에 추가 (추가 분석을 위해)
+                                krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
+                                krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
+                                
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
+                                
+                                # 💡 세금과 팁도 총액에 포함하여 저장
+                                # (단, 이 항목들은 summary에는 포함되지만, item df에 따로 추가하지 않음)
                                 st.session_state.all_receipts_summary.append({
                                     'id': file_id, 
                                     'filename': uploaded_file.name,
                                     'Store': receipt_data.get('store_name', 'N/A'),
-                                    'Total': edited_df['KRW Total Spend'].sum(), # Store KRW Total
-                                    'Currency': 'KRW', # Standardize summary currency to KRW
+                                    'Total': edited_df['KRW Total Spend'].sum() + krw_tax_total + krw_tip_total, # 아이템 총합 + 세금 + 팁
+                                    'Tax_KRW': krw_tax_total, # 💡 추가된 부분
+                                    'Tip_KRW': krw_tip_total, # 💡 추가된 부분
+                                    'Currency': 'KRW', 
                                     'Date': receipt_data.get('date', 'N/A'),
                                     'Original_Total': total_amount, 
                                     'Original_Currency': display_unit 
@@ -448,6 +463,8 @@ with tab1:
                     'filename': 'Manual Entry',
                     'Store': manual_store if manual_store else 'Manual Entry',
                     'Total': krw_total, 
+                    'Tax_KRW': 0.0, # 💡 추가된 부분 (수동 입력 시 세금/팁은 0으로 처리)
+                    'Tip_KRW': 0.0, # 💡 추가된 부분
                     'Currency': 'KRW', 
                     'Date': manual_date.strftime('%Y-%m-%d'),
                     'Original_Total': manual_amount, 
@@ -501,6 +518,11 @@ with tab1:
             summary_df['Original_Total'] = summary_df['Total'] 
         if 'Original_Currency' not in summary_df.columns:
             summary_df['Original_Currency'] = 'KRW' 
+        # 💡 Tax/Tip 열이 없을 경우 0으로 초기화하여 호환성 확보
+        if 'Tax_KRW' not in summary_df.columns:
+            summary_df['Tax_KRW'] = 0.0
+        if 'Tip_KRW' not in summary_df.columns:
+            summary_df['Tip_KRW'] = 0.0
             
         # Conditional formatting for Amount Paid
         def format_amount_paid(row):
@@ -516,8 +538,8 @@ with tab1:
 
         
         summary_df = summary_df.drop(columns=['id'])
-        summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'filename']] 
-        summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Source'] 
+        summary_df = summary_df[['Date', 'Store', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
+        summary_df.columns = ['Date', 'Store', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] # 💡 열 이름 변경하여 세금/팁 표시
 
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
         
@@ -544,8 +566,17 @@ with tab1:
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
+        # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시 (선택 사항)
+        total_tax_krw = summary_df['Tax (KRW)'].sum()
+        total_tip_krw = summary_df['Tip (KRW)'].sum()
+        
+        if total_tax_krw > 0:
+            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', total_tax_krw]
+        if total_tip_krw > 0:
+            category_summary.loc[len(category_summary)] = ['팁 (Tip)', total_tip_krw]
+            
         # --- Display Summary Table ---
-        st.subheader("💰 Spending Summary by Category")
+        st.subheader("💰 Spending Summary by Category (Items + Tax + Tip)") # 💡 제목 수정
         category_summary_display = category_summary.copy()
         category_summary_display['Amount'] = category_summary_display['Amount'].apply(lambda x: f"{x:,.0f} {display_currency_label}")
         st.dataframe(category_summary_display, use_container_width=True, hide_index=True)
@@ -607,6 +638,7 @@ with tab1:
         detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'KRW Total Spend']]
         items_text = detailed_items_for_ai.to_string(index=False)
         
+        # 💡 AI 분석 프롬프트에 세금/팁 정보는 따로 명시하지 않고, 카테고리 합계에 포함하여 전달
         ai_report = generate_ai_analysis(
             summary_df=category_summary,
             store_name="Multiple Stores",
@@ -656,6 +688,14 @@ with tab2:
              )
         
         category_summary = all_items_df.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
+        
+        # 💡 채팅 분석을 위해 세금/팁 항목을 category_summary에 추가
+        summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
+        if 'Tax_KRW' in summary_df_for_chat.columns:
+            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', summary_df_for_chat['Tax_KRW'].sum()]
+        if 'Tip_KRW' in summary_df_for_chat.columns:
+            category_summary.loc[len(category_summary)] = ['팁 (Tip)', summary_df_for_chat['Tip_KRW'].sum()]
+
         total_spent = category_summary['KRW Total Spend'].sum()
         summary_text = category_summary.to_string(index=False)
         display_currency_label_chat = 'KRW'
