@@ -289,6 +289,81 @@ with tab1:
         accept_multiple_files=False 
     )
 
+    # --- 👇 New Feature: Load Previous Data via CSV Upload ---
+    st.subheader("📁 Load Previous Ledger Data (CSV)")
+    uploaded_csv = st.file_uploader(
+        "Upload the previously downloaded ledger CSV file to continue accumulating records.",
+        type=['csv'],
+        accept_multiple_files=False
+
+    if uploaded_csv is not None:
+        if st.button("🔄 Load & Merge Previous Records"):
+            try:
+                # 1. Read the uploaded CSV file
+                # Assuming the CSV structure is the same as the downloaded one (all_items_df_numeric)
+                previous_df = pd.read_csv(uploaded_csv)
+                
+                # 2. Check for critical columns
+                required_cols = ['Item Name', 'AI Category', 'KRW Total Spend']
+                if not all(col in previous_df.columns for col in required_cols):
+                    st.error("❌ Invalid CSV format. Required columns (Item Name, AI Category, KRW Total Spend, etc.) are missing.")
+                else:
+                    # 3. Add necessary default columns if they are missing (for compatibility)
+                    if 'Currency' not in previous_df.columns:
+                        previous_df['Currency'] = 'KRW'
+                    if 'Total Spend' not in previous_df.columns:
+                        # For old files without original currency, assume KRW equivalent
+                        previous_df['Total Spend'] = previous_df['KRW Total Spend']
+                        
+                    # 4. Filter for necessary item columns for session_state.all_receipts_items
+                    # We need all columns in the original structure, even if empty/defaulted
+                    item_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+                    # Ensure all required columns are present before appending
+                    for col in item_cols:
+                        if col not in previous_df.columns:
+                            # Fill missing numeric columns with 0, others with 'N/A'
+                            previous_df[col] = 0.0 if col in ['Unit Price', 'Quantity'] else 'N/A'
+
+                    df_to_merge = previous_df[item_cols]
+                    
+                    # 5. Merge the loaded data into the current session state
+                    # Note: We append the entire DataFrame as a single entry for simplicity, 
+                    # but a more robust method might involve parsing and creating summary entries too.
+                    # For this solution, we only merge the detailed items (all_receipts_items).
+                    
+                    # Prevent merging if the data is already a single concatenated DataFrame
+                    # We should check if the loaded DF contains multiple receipts, which is complex.
+                    # Simplification: Assume loaded CSV is a full detailed item list and append it.
+                    st.session_state.all_receipts_items.append(df_to_merge)
+                    
+                    # 💡 Update Summary (CRITICAL: Summaries are required for Total/Tax/Tip/Date info)
+                    # The downloaded CSV only contains *item details*. 
+                    # To accurately reflect the history, we need to manually create a summary entry 
+                    # or assume the loaded data is only for aggregation/chat.
+                    # Given the scope, let's create a single 'Historical Data' summary entry.
+                    
+                    total_krw_from_csv = df_to_merge['KRW Total Spend'].sum()
+                    
+                    st.session_state.all_receipts_summary.append({
+                        'id': f"history-csv-{pd.Timestamp.now().timestamp()}", 
+                        'filename': uploaded_csv.name,
+                        'Store': 'Historical Data (CSV Load)',
+                        'Total': total_krw_from_csv, 
+                        'Tax_KRW': 0.0, # Cannot know original tax/tip from item list
+                        'Tip_KRW': 0.0,
+                        'Currency': 'KRW', 
+                        'Date': 'Historic Range',
+                        'Location': 'Various Locations',
+                        'Original_Total': total_krw_from_csv, 
+                        'Original_Currency': 'KRW' 
+                    })
+                    
+                    st.success(f"🎉 Successfully loaded **{len(previous_df)}** historical items from {uploaded_csv.name} and merged them! Total historical spend: **{total_krw_from_csv:,.0f} KRW**.")
+                    st.info("The loaded data is now included in the Cumulative Analysis Report.")
+                    st.rerun() 
+
+            except Exception as e:
+                st.error(f"❌ Error processing CSV file: {e}")
 
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
