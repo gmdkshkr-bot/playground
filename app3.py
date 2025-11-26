@@ -791,7 +791,7 @@ if uploaded_csv is not None:
         st.markdown("---")
         @st.cache_data
         def convert_df_to_csv(df):
-        return df.to_csv(index=False, encoding='utf-8-sig')
+            return df.to_csv(index=False, encoding='utf-8-sig')
 
         # 💡 수정 1: 다운로드할 데이터프레임을 summary_df로 변경
         # summary_df는 이미 상단에서 Tax, Tip, Total, Date, Store 등 모든 필요한 정보를 포함하고 있습니다.
