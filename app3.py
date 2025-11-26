@@ -158,7 +158,7 @@ with st.sidebar:
     if st.session_state.all_receipts_items:
         st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") # Summary 기준으로 갯수 표시
         
-st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
+st.title("🧾 Household Receipt Analyzer & Cumulative Tracker")
 st.markdown("---")
 
 
