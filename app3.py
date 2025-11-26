@@ -723,12 +723,13 @@ with tab1:
         def convert_df_to_csv(df):
             return df.to_csv(index=False, encoding='utf-8-sig')
 
-        csv = convert_df_to_csv(all_items_df_numeric) 
+        csv = convert_df_to_csv(all_items_df_numeric) 
         st.download_button(
-            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
-            data=csv,
-            file_name=f"all_receipts_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-            mime='text/csv',
+            label="⬇️ Download Full Cumulative Ledger Data (CSV)",
+            data=csv,
+            # 💡 수정된 부분: 파일 이름을 'record_오늘날짜.csv' 형식으로 변경
+            file_name=f"record_{pd.Timestamp.now().strftime('%Y%m%d')}.csv", 
+            mime='text/csv',
         )
 
         if st.button("🧹 Reset Record", help="Clears all accumulated receipt analysis records in the app."):
