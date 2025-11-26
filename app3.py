@@ -8,7 +8,7 @@ import numpy as np
 import plotly.express as px
 import requests
 from google import genai
-from google.genai.types import HarmCategory, HarmBlockThreshold 
+from google.genai.types import HarmCategory, HarmBlockThreshold
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
