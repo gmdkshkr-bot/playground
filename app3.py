@@ -315,11 +315,11 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         - category: The most appropriate **Sub-Category** for this item, which must be **automatically classified** by you.
     
     **Classification Guide (Choose ONE sub-category for 'category' field):**
-    - Food: **외식, 식재료, 카페/음료, 주류** (Dining Out, Groceries, Coffee/Beverages, Alcohol)
-    - Household: **생필품, 의료/건강, 교육/서적, 통신, 공과금** (Necessities, Medical/Health, Education/Books, Communication, Utilities)
-    - Transport: **대중교통, 유류비, 택시, 주차비** (Public Transport, Fuel, Taxi, Parking)
-    - Culture: **영화/공연, 여행, 취미, 게임** (Movies/Shows, Travel, Hobby, Games)
-    - Other: **경조사, 이체/수수료, 비상금, 미분류** (Events, Transfer/Fees, Emergency Fund, Unclassified)
+    - **FIXED / ESSENTIAL:** Rent & Mortgage, Communication Fees, Public Utilities, Public Transit, Fuel & Vehicle Maint., Parking & Tolls
+    - **VARIABLE / CONSUMPTION (Planned):** Groceries, Household Goods
+    - **VARIABLE / CONSUMPTION (Experience):** Dining Out, Travel & Accommodation, Movies & Shows
+    - **INVESTMENT / ASSET:** Medical & Pharmacy, Health Supplements, Education & Books, Hobby & Skill Dev., Events & Gifts
+    - **IMPULSE / LOSS:** Casual Dining, Coffee & Beverages, Alcohol & Bars, Games & Digital Goods, Taxi Convenience, Fees & Penalties, Unclassified
         
     JSON Schema:
     ```json
