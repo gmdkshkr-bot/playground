@@ -263,12 +263,13 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         return None
 
 # --- 2. AI Analysis Report Generation Function ---
-# --- 2. AI Analysis Report Generation Function ---
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
     """
     Generates an AI analysis report based on aggregated spending data and detailed items.
     """
     # ... (기존 코드 유지)
+    # 🌟 추가/수정: summary_df를 문자열로 변환하여 summary_text 변수 정의
+    summary_text = summary_df.to_string(index=False)
 
     prompt_template = f"""
     You are an expert in receipt analysis and ledger recording, acting as a **friendly yet professional financial advisor**.
