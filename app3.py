@@ -65,6 +65,23 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
     }
     return summary_data
 
+# 💡 헬퍼 함수: Level 3 카테고리를 최종 4가지 심리 카테고리 중 하나에 매핑하는 역할을 합니다.
+def get_psychological_category(sub_category: str) -> str:
+    """ Maps a detailed AI sub-category to one of the four main psychological categories. """
+    nature = SPENDING_NATURE.get(sub_category, 'Loss_Unclassified')
+    
+    if nature in ['Investment_Asset']:
+        return PSYCHOLOGICAL_CATEGORIES[0] # Investment / Asset
+    elif nature in ['Consumption_Experience', 'Consumption_Planned']:
+        return PSYCHOLOGICAL_CATEGORIES[1] # Experience / High-Value Consumption
+    elif nature in ['Impulse_Habitual', 'Impulse_Convenience', 'Loss_Inefficiency', 'Loss_Unclassified']:
+        return PSYCHOLOGICAL_CATEGORIES[2] # Habit / Impulse Loss
+    elif nature in ['Fixed_Essential']:
+        return PSYCHOLOGICAL_CATEGORIES[3] # Fixed / Essential Cost
+    else:
+        return PSYCHOLOGICAL_CATEGORIES[2] # Default to Impulse/Loss if unknown
+
+
 
 @st.cache_data(ttl=datetime.timedelta(hours=24))
 def get_exchange_rates():
@@ -131,13 +148,61 @@ def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     return amount * rate
 
 # Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
+# Global Categories (Updated for professional, detailed analysis)
 ALL_CATEGORIES = [
-    "외식", "식재료", "카페/음료", "주류", 
-    "생필품", "의료/건강", "교육/서적", "통신", "공과금",
-    "대중교통", "유류비", "택시", "주차비", 
-    "영화/공연", "여행", "취미", "게임", 
-    "경조사", "이체/수수료", "비상금", "미분류"
+    "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars", 
+    "Groceries", "Household Goods", "Medical & Pharmacy", "Health Supplements",
+    "Education & Books", "Hobby & Skill Dev.", "Public Utilities", "Communication Fees", 
+    "Public Transit", "Fuel & Vehicle Maint.", "Parking & Tolls", "Taxi Convenience",
+    "Movies & Shows", "Travel & Accommodation", "Games & Digital Goods", 
+    "Events & Gifts", "Fees & Penalties", "Rent & Mortgage", "Unclassified"
 ]
+
+# --- New Global Variable for Psychological Analysis ---
+# Maps the detailed sub-category to its primary psychological spending nature.
+SPENDING_NATURE = {
+    # FIXED / ESSENTIAL (고정/필수)
+    "Rent & Mortgage": "Fixed_Essential",
+    "Communication Fees": "Fixed_Essential",
+    "Public Utilities": "Fixed_Essential",
+    "Public Transit": "Fixed_Essential",
+    "Parking & Tolls": "Fixed_Essential",
+    
+    # INVESTMENT / ASSET (미래 투자)
+    "Medical & Pharmacy": "Investment_Asset",
+    "Health Supplements": "Investment_Asset",
+    "Education & Books": "Investment_Asset",
+    "Hobby & Skill Dev.": "Investment_Asset",
+    "Events & Gifts": "Investment_Asset", # Social Capital
+    
+    # PLANNED CONSUMPTION / VARIABLE (계획적 소비/변동비)
+    "Groceries": "Consumption_Planned",
+    "Household Goods": "Consumption_Planned",
+    "Fuel & Vehicle Maint.": "Consumption_Planned", # Essential Variable
+    
+    # EXPERIENCE / DISCRETIONARY (경험적/선택적)
+    "Dining Out": "Consumption_Experience",
+    "Travel & Accommodation": "Consumption_Experience",
+    "Movies & Shows": "Consumption_Experience",
+    
+    # IMPULSE / LOSS (충동/손실)
+    "Casual Dining": "Impulse_Habitual", # 잦은 습관성 소액 지출
+    "Coffee & Beverages": "Impulse_Habitual",
+    "Alcohol & Bars": "Impulse_Habitual",
+    "Games & Digital Goods": "Impulse_Habitual",
+    "Taxi Convenience": "Impulse_Convenience", # 비효율적 편의 지출
+    "Fees & Penalties": "Loss_Inefficiency",
+    "Unclassified": "Loss_Unclassified"
+}
+
+# The four main categories for the final analysis report.
+PSYCHOLOGICAL_CATEGORIES = [
+    "Investment / Asset", 
+    "Experience / High-Value Consumption", 
+    "Habit / Impulse Loss", 
+    "Fixed / Essential Cost"
+]
+
 
 def get_category_guide():
     guide = ""
@@ -849,7 +914,7 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-#     		 	TAB 2: FINANCIAL EXPERT CHAT
+# 		 	TAB 2: FINANCIAL EXPERT CHAT
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
@@ -857,68 +922,93 @@ with tab2:
     if not st.session_state.all_receipts_items:
         st.warning("Please analyze at least one receipt or load a CSV in the 'Analysis & Tracking' tab before starting a consultation.")
     else:
-        # Chat uses KRW-based analysis data
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
         # Defensive check for KRW Total Spend column
         if 'KRW Total Spend' not in all_items_df.columns:
-             all_items_df['KRW Total Spend'] = all_items_df.apply(
-                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
-             )
-        
-        category_summary = all_items_df.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
-        
-        # 💡 채팅 분석을 위해 세금/팁 항목을 category_summary에 추가
-        summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
-        if 'Tax_KRW' in summary_df_for_chat.columns:
-            category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', summary_df_for_chat['Tax_KRW'].sum()]
-        if 'Tip_KRW' in summary_df_for_chat.columns:
-            category_summary.loc[len(category_summary)] = ['팁 (Tip)', summary_df_for_chat['Tip_KRW'].sum()]
-        
-        category_summary.columns = ['Category', 'KRW Total Spend'] # Column name for consistency
+              all_items_df['KRW Total Spend'] = all_items_df.apply(
+                  lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
+              )
 
-        total_spent = category_summary['KRW Total Spend'].sum()
-        summary_text = category_summary.to_string(index=False)
-        display_currency_label_chat = 'KRW'
+        # 1. Add Psychological Category to the detailed DataFrame
+        all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
+
+        # 2. Group by the new Psychological Category
+        psychological_summary = all_items_df.groupby('Psychological Category')['KRW Total Spend'].sum().reset_index()
+        psychological_summary.columns = ['Category', 'KRW Total Spend']
+
+        # 3. Add Tax/Tip to Fixed/Essential Cost
+        summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
+        
+        tax_tip_total = 0.0
+        if 'Tax_KRW' in summary_df_for_chat.columns:
+            tax_tip_total += summary_df_for_chat['Tax_KRW'].sum()
+        if 'Tip_KRW' in summary_df_for_chat.columns:
+            tax_tip_total += summary_df_for_chat['Tip_KRW'].sum()
+
+        # Add Tax/Tip to the 'Fixed / Essential Cost' category
+        if tax_tip_total > 0:
+             # Find or create the Fixed / Essential Cost entry
+             fixed_cost_index = psychological_summary[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[3]].index
+             if not fixed_cost_index.empty:
+                 psychological_summary.loc[fixed_cost_index[0], 'KRW Total Spend'] += tax_tip_total
+             else:
+                 new_row = pd.DataFrame([{'Category': PSYCHOLOGICAL_CATEGORIES[3], 'KRW Total Spend': tax_tip_total}])
+                 psychological_summary = pd.concat([psychological_summary, new_row], ignore_index=True)
+
+
+        total_spent = psychological_summary['KRW Total Spend'].sum()
+        
+        # Calculate the Impulse Spending Index
+        impulse_spending = psychological_summary.loc[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[2], 'KRW Total Spend'].sum()
+        impulse_index = impulse_spending / total_spent if total_spent > 0 else 0.0
+        
+        psychological_summary_text = psychological_summary.to_string(index=False)
         
         # Prepare detailed item data for the chatbot's system instruction
-        detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
+        detailed_items_for_chat = all_items_df[['Psychological Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
-        # ... (tab2 내부의 system_instruction 변수)
-
-        # MODIFIED SYSTEM INSTRUCTION
+        # MODIFIED SYSTEM INSTRUCTION (CRITICAL)
         system_instruction = f"""
-        You are a supportive, **friendly, and highly knowledgeable Financial Expert. Your tone should be consistently polite and helpful, like a good friend who is also a professional advisor**. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
- 
-        The user's cumulative spending data for the current session is as follows (All converted to KRW):
-        - Total Accumulated Spending: {total_spent:,.0f} {display_currency_label_chat}
-        - Category Breakdown (Category, Amount, all in {display_currency_label_chat}):
-        {summary_text}
- 
-        **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
-        --- Detailed Items Data (AI Category, Item Name, KRW Total Spend) ---
+        You are a supportive, friendly, and highly knowledgeable Financial Psychologist and Advisor. Your role is to analyze the user's spending habits from a **psychological and behavioral economics perspective**, and provide personalized advice on overcoming impulse spending and optimizing happiness per won. Your tone should be consistently polite and helpful, like a professional mentor.
+        
+        The user's cumulative spending data for the current session (All converted to KRW) is analyzed by its **Psychological Spending Nature**:
+        - **Total Accumulated Spending**: {total_spent:,.0f} KRW
+        - **Calculated Impulse Spending Index**: {impulse_index:.2f} (Target: < 0.20)
+        - **Psychological Category Breakdown (Category, Amount)**:
+        {psychological_summary_text}
+        
+        **CRITICAL DETAILED DATA:** Below are the individual item names, their original AI categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores, or refer to high-frequency, low-value items that drive the Impulse Index).
+        --- Detailed Items Data (Psychological Category, Item Name, KRW Total Spend) ---
         {items_text_for_chat}
         ---
 
-        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). **Always ensure your advice is supported by the data provided (high credibility).** Keep your tone **polite, respectful, and encouraging, just like a friendly, professional mentor**. **Always include the currency unit (KRW) when referring to monetary amounts.**
+        Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
         """
 
         # 💡 초기 메시지 추가 (UX 개선)
-        if not st.session_state.chat_history:
-            initial_message = f"""
-            안녕하세요! 저는 귀하의 지출 패턴을 분석하는 AI 금융 전문가입니다. 
-            현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었습니다.
-            어떤 부분에 대해 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+        if not st.session_state.chat_history or (len(st.session_state.chat_history) == 1 and st.session_state.chat_history[0]["content"].startswith("안녕하세요! 저는 귀하의 지출 패턴을 분석하는")):
+             # 챗 기록이 없거나, 이전 버전의 초기 메시지만 있을 경우 재설정
+             st.session_state.chat_history = []
+             initial_message = f"""
+            안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
+            현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
+            귀하의 **소비 충동성 지수 (Impulse Spending Index)**는 **{impulse_index:.2f}**로 분석되었습니다. (목표치는 0.20 이하)
 
-            * "가장 큰 지출 카테고리가 뭐예요?"
-            * "식비에서 절약할 수 있는 팁을 주세요."
-            * "저축 목표를 달성하려면 어떻게 해야 할까요?"
+            이 지수는 귀하의 지출 중 비계획적이고 습관적인 손실성 소비의 비율을 나타냅니다.
+            어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+
+            * "제 충동성 지수 {impulse_index:.2f}가 의미하는 바는 무엇인가요?"
+            * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
+            * "제 지출에서 가장 큰 **습관적 손실** 항목을 알려주세요."
             """
-            st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
-
+             st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
 
         # Display chat history
+        # ... (이하 기존 채팅 history display 및 prompt input 로직 유지)
+        
+        # ... (이하 기존 채팅 history display 및 prompt input 로직 유지)
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
@@ -933,18 +1023,7 @@ with tab2:
             with st.chat_message("assistant"):
                 with st.spinner("Expert is thinking..."):
                     try:
-                        contents = [
-                            {"role": "user", "parts": [{"text": msg["content"]}]} 
-                            for msg in st.session_state.chat_history if msg["role"] == "user" # 유저 메시지만 추출
-                        ]
-                        
-                        # 어시스턴트의 답변도 history에 포함
-                        assistant_responses = [
-                            {"role": "assistant", "parts": [{"text": msg["content"]}]}
-                            for msg in st.session_state.chat_history if msg["role"] == "assistant"
-                        ]
-                        
-                        # history를 순서대로 결합 (User, Assistant, User, Assistant...)
+                        # ... (기존 combined_contents 구성 로직 유지)
                         combined_contents = []
                         history_items = st.session_state.chat_history[:-1] # 마지막 user prompt 제외
                         for item in history_items:
