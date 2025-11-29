@@ -263,18 +263,21 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         return None
 
 # --- 2. AI Analysis Report Generation Function ---
+# --- 2. AI Analysis Report Generation Function ---
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
     """
     Generates an AI analysis report based on aggregated spending data and detailed items.
     """
-    summary_text = summary_df.to_string(index=False)
-    
+    # ... (기존 코드 유지)
+
     prompt_template = f"""
-    You are an AI ledger analyst providing professional financial advice.
+    You are an expert in receipt analysis and ledger recording, acting as a **friendly yet professional financial advisor**.
+    Your analysis must be based strictly on the provided data, ensuring high credibility and clarity.
+
     The user's **all accumulated spending** amounts to {total_amount:,.0f} {currency_unit}.
     
     Below is the category breakdown of all accumulated spending (Unit: {currency_unit}):
-    --- Spending Summary Data ---
+    --- Spending Summary Data (Category, Amount) ---
     {summary_text}
     ---
     
@@ -283,12 +286,13 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     {detailed_items_text}
     ---
 
-    Follow these instructions and provide an analysis report in a friendly and professional tone:
-    1. Summarize the main characteristic of this total spending (e.g., the largest spending category and its driving factor based on individual items).
+    Follow these instructions and provide an analysis report in a **friendly and professional tone**:
+    1. Summarize the main characteristic of this total spending (e.g., the largest spending category and its driving factor based on individual items). **Reference the data directly to justify your summary.**
     2. Provide 2-3 sentences of helpful and friendly advice or commentary for the user. Try to mention a specific item or category-related pattern observed in the Detailed Items Data.
     3. The response must only contain the analysis content, starting directly with the summary, without any greetings or additional explanations.
     4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "Total spending of 1,500,000 KRW").
     """
+    
 
     try:
         response = client.models.generate_content(
@@ -880,21 +884,23 @@ with tab2:
         detailed_items_for_chat = all_items_df[['AI Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
+        # ... (tab2 내부의 system_instruction 변수)
+
         # MODIFIED SYSTEM INSTRUCTION
         system_instruction = f"""
-        You are a supportive, friendly, and highly knowledgeable Financial Expert. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
-        
+        You are a supportive, **friendly, and highly knowledgeable Financial Expert. Your tone should be consistently polite and helpful, like a good friend who is also a professional advisor**. Your role is to provide personalized advice on saving money, budgeting, and making smarter consumption choices.
+ 
         The user's cumulative spending data for the current session is as follows (All converted to KRW):
         - Total Accumulated Spending: {total_spent:,.0f} {display_currency_label_chat}
         - Category Breakdown (Category, Amount, all in {display_currency_label_chat}):
         {summary_text}
-        
+ 
         **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
         --- Detailed Items Data (AI Category, Item Name, KRW Total Spend) ---
         {items_text_for_chat}
         ---
 
-        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). Keep your tone professional yet encouraging. **Always include the currency unit (KRW) when referring to monetary amounts.**
+        Base all your advice and responses on this data. When asked for advice, refer directly to their spending patterns (e.g., "I see 'Food' is your largest expense..." or refer to specific items). **Always ensure your advice is supported by the data provided (high credibility).** Keep your tone **polite, respectful, and encouraging, just like a friendly, professional mentor**. **Always include the currency unit (KRW) when referring to monetary amounts.**
         """
 
         # 💡 초기 메시지 추가 (UX 개선)
