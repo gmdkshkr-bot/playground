@@ -661,7 +661,9 @@ with tab1:
             manual_amount = st.number_input("💰 Expense Amount (Numbers Only)", min_value=0.0, step=100.0, format="%.2f")
             
         with col_m3:
-            manual_category = st.selectbox("📌 Category (Sub-Category)", options=ALL_CATEGORIES, index=ALL_CATEGORIES.index('미분류'))
+            manual_category = st.selectbox("📌 Category (Sub-Category)", 
+                                options=ALL_CATEGORIES, 
+                                index=ALL_CATEGORIES.index('Unclassified'))
             manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
             manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") 
             
