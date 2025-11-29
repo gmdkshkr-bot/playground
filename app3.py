@@ -135,6 +135,8 @@ def get_exchange_rates():
         return FALLBACK_RATES
 
 
+
+
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
@@ -156,6 +158,14 @@ ALL_CATEGORIES = [
     "Public Transit", "Fuel & Vehicle Maint.", "Parking & Tolls", "Taxi Convenience",
     "Movies & Shows", "Travel & Accommodation", "Games & Digital Goods", 
     "Events & Gifts", "Fees & Penalties", "Rent & Mortgage", "Unclassified"
+]
+
+# The four main categories for the final analysis report.
+PSYCHOLOGICAL_CATEGORIES = [
+    "Investment / Asset", 
+    "Experience / High-Value Consumption", 
+    "Habit / Impulse Loss", 
+    "Fixed / Essential Cost"
 ]
 
 # --- New Global Variable for Psychological Analysis ---
@@ -204,14 +214,30 @@ PSYCHOLOGICAL_CATEGORIES = [
 ]
 
 
+def get_psychological_category(sub_category: str) -> str:
+    """ Maps a detailed AI sub-category to one of the four main psychological categories. """
+    nature = SPENDING_NATURE.get(sub_category, 'Loss_Unclassified')
+    
+    if nature in ['Investment_Asset']:
+        return PSYCHOLOGICAL_CATEGORIES[0] # Investment / Asset
+    elif nature in ['Consumption_Experience', 'Consumption_Planned']:
+        return PSYCHOLOGICAL_CATEGORIES[1] # Experience / High-Value Consumption
+    elif nature in ['Impulse_Habitual', 'Impulse_Convenience', 'Loss_Inefficiency', 'Loss_Unclassified']:
+        return PSYCHOLOGICAL_CATEGORIES[2] # Habit / Impulse Loss
+    elif nature in ['Fixed_Essential']:
+        return PSYCHOLOGICAL_CATEGORIES[3] # Fixed / Essential Cost
+    else:
+        return PSYCHOLOGICAL_CATEGORIES[2] # Default to Impulse/Loss if unknown
+
+
 def get_category_guide():
+    # 💡 이 함수도 새로운 카테고리에 맞춰 영어로 업데이트합니다.
     guide = ""
     categories = {
-        "Food": ["외식 (Dining Out)", "식재료 (Groceries)", "카페/음료 (Coffee/Beverages)", "주류 (Alcohol)"],
-        "Household": ["생필품 (Necessities)", "의료/건강 (Medical/Health)", "교육/서적 (Education/Books)", "통신 (Communication)", "공과금 (Utilities)"],
-        "Transport": ["대중교통 (Public Transport)", "유류비 (Fuel)", "택시 (Taxi)", "주차비 (Parking)"],
-        "Culture": ["영화/공연 (Movies/Shows)", "여행 (Travel)", "취미 (Hobby)", "게임 (Games)"],
-        "Other": ["경조사 (Events)", "이체/수수료 (Transfer/Fees)", "비상금 (Emergency Fund)", "미분류 (Unclassified)"],
+        "FIXED / ESSENTIAL": ["Rent & Mortgage", "Communication Fees", "Public Utilities", "Public Transit", "Parking & Tolls"],
+        "VARIABLE / CONSUMPTION": ["Groceries", "Household Goods", "Fuel & Vehicle Maint.", "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars"],
+        "INVESTMENT / ASSET": ["Medical & Pharmacy", "Health Supplements", "Education & Books", "Hobby & Skill Dev.", "Events & Gifts"],
+        "DISCRETIONARY / LOSS": ["Travel & Accommodation", "Movies & Shows", "Games & Digital Goods", "Taxi Convenience", "Fees & Penalties", "Unclassified"],
     }
     for main, subs in categories.items():
         guide += f"- **{main}**: {', '.join(subs)}\n"
