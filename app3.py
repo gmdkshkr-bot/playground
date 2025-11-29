@@ -1051,19 +1051,27 @@ with tab2:
             with st.chat_message("assistant"):
                 with st.spinner("Expert is thinking..."):
                     try:
-                        # ... (기존 combined_contents 구성 로직 유지)
+                        # --- 🌟 수정된 역할 매핑 로직 시작 🌟 ---
                         combined_contents = []
-                        history_items = st.session_state.chat_history[:-1] # 마지막 user prompt 제외
-                        for item in history_items:
-                             combined_contents.append({"role": item["role"], "parts": [{"text": item["content"]}]})
+                        history_items = st.session_state.chat_history # 모든 기록을 사용 (마지막 user prompt 포함)
                         
-                        # 마지막 user prompt 추가
-                        combined_contents.append({"role": "user", "parts": [{"text": prompt}]})
-
+                        for item in history_items:
+                            # Streamlit 역할(user, assistant)을 Gemini 역할(user, model)로 매핑합니다.
+                            gemini_role = "user" if item["role"] == "user" else "model" 
+                            
+                            combined_contents.append({
+                                "role": gemini_role, 
+                                "parts": [{"text": item["content"]}]
+                            })
+                        
+                        # Note: st.session_state.chat_history에 마지막 user prompt가 이미 추가되어 있으므로,
+                        # combined_contents는 마지막까지 정확히 구성됩니다.
+                        
+                        # --- 🌟 수정된 역할 매핑 로직 종료 🌟 ---
 
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=combined_contents,
+                            contents=combined_contents, # ⬅️ 이제 올바른 역할(user/model)이 포함됨
                             config=genai.types.GenerateContentConfig(
                                 system_instruction=system_instruction
                             )
