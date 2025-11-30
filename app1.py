@@ -1003,33 +1003,27 @@ with tab2:
             psychological_summary = all_items_df_raw.groupby('Psychological Category')['KRW Total Spend'].sum().reset_index()
             psychological_summary.columns = ['Category', 'KRW Total Spend']
 
-            # 3. Add Tax/Tip to Fixed/Essential Cost
+            # 3. Add Tip only to Fixed/Essential Cost 
             summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
             
-
-            # 💡 수정: Tax_KRW를 합산하지 않고 Tip_KRW만 합산합니다.
             tax_tip_only_total = 0.0
+            # 🚨 CRITICAL FIX: Tax_KRW를 합산하는 로직을 제거하고 Tip_KRW만 합산합니다.
+            # if 'Tax_KRW' in summary_df_for_chat.columns:
+            #     tax_tip_only_total += summary_df_for_chat['Tax_KRW'].sum() # <-- 이 부분을 반드시 삭제해야 합니다.
+            
             if 'Tip_KRW' in summary_df_for_chat.columns:
-                tax_tip_only_total += summary_df_for_chat['Tip_KRW'].sum() # Tip만 합산
+                tax_tip_only_total += summary_df_for_chat['Tip_KRW'].sum() # Tip만 합산합니다.
             
             # Add Tip (Only) to the 'Fixed / Essential Cost' category
             if tax_tip_only_total > 0:
                 # Find or create the Fixed / Essential Cost entry
                 fixed_cost_index = psychological_summary[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[3]].index
                 if not fixed_cost_index.empty:
-                    psychological_summary.loc[fixed_cost_index[0], 'KRW Total Spend'] += tax_tip_only_total # 💡 tax_tip_only_total 사용
+                    # Tip만 Fixed Cost에 합산
+                    psychological_summary.loc[fixed_cost_index[0], 'KRW Total Spend'] += tax_tip_only_total 
                 else:
-                    new_row = pd.DataFrame([{'Category': PSYCHOLOGICAL_CATEGORIES[3], 'KRW Total Spend': tax_tip_only_total}]) # 💡 tax_tip_only_total 사용
+                    new_row = pd.DataFrame([{'Category': PSYCHOLOGICAL_CATEGORIES[3], 'KRW Total Spend': tax_tip_only_total}])
                     psychological_summary = pd.concat([psychological_summary, new_row], ignore_index=True)
-            
-            # Add Tax/Tip to the 'Fixed / Essential Cost' category
-            if tax_tip_total > 0:
-                 fixed_cost_index = psychological_summary[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[3]].index
-                 if not fixed_cost_index.empty:
-                     psychological_summary.loc[fixed_cost_index[0], 'KRW Total Spend'] += tax_tip_total
-                 else:
-                     new_row = pd.DataFrame([{'Category': PSYCHOLOGICAL_CATEGORIES[3], 'KRW Total Spend': tax_tip_total}])
-                     psychological_summary = pd.concat([psychological_summary, new_row], ignore_index=True)
 
             st.session_state.psychological_summary = psychological_summary
             st.session_state.all_items_df_for_chat = all_items_df_raw
