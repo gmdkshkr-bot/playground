@@ -605,23 +605,29 @@ with tab1:
                                 items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
                                 items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
                                 items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
-                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity'] # ⬅️ **[수정: 원가 총합 계산]**
+                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
                                 
-                                # 📢 할인 안분(Allocation) 로직 시작!
+                                # 📢 할인 안분(Allocation) 로직 시작! - 로직 안정화 (Robust Initialization)
+                                
+                                # 🌟 1단계: 모든 품목에 대해 할인액 0, 최종 지출액을 원가로 초기 설정
+                                # 이렇게 하면 discount_amount가 0일 때도 Total Spend 컬럼이 안전하게 정의됩니다.
+                                items_df['Discount Applied'] = 0.0
+                                items_df['Total Spend'] = items_df['Total Spend Original']
+                                
                                 total_item_original = items_df['Total Spend Original'].sum()
                                 
+                                # 🌟 2단계: 할인이 있을 경우에만 재계산
                                 if discount_amount > 0 and total_item_original > 0:
                                     # 할인 비율 계산: 품목 원가 총합 대비 할인액 비율
                                     discount_rate = discount_amount / total_item_original
                                     
-                                    # 품목별 할인액 계산 및 실제 지출액 (Total Spend) 계산
+                                    # 품목별 할인액 계산 및 실제 지출액 (Total Spend)으로 업데이트
                                     items_df['Discount Applied'] = items_df['Total Spend Original'] * discount_rate
                                     items_df['Total Spend'] = items_df['Total Spend Original'] - items_df['Discount Applied']
                                     st.info(f"💡 Discount of {discount_amount:,.0f} {display_unit} successfully allocated across items.")
                                 else:
-                                    # 할인이 없거나 계산 불가능하면 원가 그대로 사용
-                                    items_df['Discount Applied'] = 0.0
-                                    items_df['Total Spend'] = items_df['Total Spend Original']
+                                    # 할인이 없거나 계산이 불가능한 경우, 초기화된 값 (Total Spend = Total Spend Original)을 그대로 사용
+                                    pass
                                     
                                 # 📢 할인 안분 로직 종료. Total Spend는 이제 할인이 반영된 금액입니다.
                                 
