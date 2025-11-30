@@ -304,7 +304,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     1. store_name: Store Name (text)
     2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
     3. store_location: Store location/address (text). **If not found, use "Seoul".**
-    4. total_amount: Total Amount Paid (numbers only, no commas). **This is the final amount paid after all discounts and before tax/tip.**
+    4. total_amount: Final amount settled/paid via card or cash (numbers only, no commas). **This is the final amount paid after all discounts and before tax/tip.**
     5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
     6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
     7. discount_amount: Total discount amount applied to the entire receipt (numbers only, no commas). **Must be 0 if not present.** ⬅️ **[수정]**
