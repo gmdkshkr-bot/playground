@@ -363,6 +363,8 @@ with tab1:
 
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
+        
+        # 💡 중복 파일 체크
         existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
         is_already_analyzed = existing_summary is not None
         
@@ -376,24 +378,54 @@ with tab1:
             st.subheader("📊 Analysis and Recording")
             
             if is_already_analyzed:
-                st.warning(f"⚠️ This receipt ({uploaded_file.name}) is already analyzed. Prevent recording the same data multiple times")
-                analyze_button = st.button("✨ Start Receipt Analysis", disabled=True)
+                
+                # 💡 중복된 경우: 분석 버튼을 비활성화하고, 저장된 데이터를 바로 표시합니다.
+                st.warning(f"⚠️ This receipt ({uploaded_file.name}) is already analyzed. Data is **not recorded again**.")
+                analyze_button_disabled = st.button("✨ Start Receipt Analysis", disabled=True, key="analyze_disabled")
+                
+                # --- 저장된 결과 표시 로직 ---
                 display_unit = existing_summary['Original_Currency']
                 st.markdown(f"**🏠 Store Name:** {existing_summary.get('Store', 'N/A')}")
                 st.markdown(f"**📍 Location:** {existing_summary.get('Location', 'N/A')}")
                 st.markdown(f"**📅 Date:** {existing_summary.get('Date', 'N/A')}")
                 st.subheader(f"💰 Total Amount Paid: {existing_summary.get('Original_Total', 0):,.0f} {display_unit}")
+                
                 krw_tax = existing_summary.get('Tax_KRW', 0)
                 krw_tip = existing_summary.get('Tip_KRW', 0)
+                
                 if krw_tax > 0 or krw_tip > 0:
                     tax_display = f"{krw_tax:,.0f} KRW"
                     tip_display = f"{krw_tip:,.0f} KRW"
                     st.markdown(f"**🧾 Tax/VAT (KRW):** {tax_display} | **💸 Tip (KRW):** {tip_display}")
+                
                 st.info(f"누적 기록 총액 (KRW): **{existing_summary.get('Total', 0):,.0f} KRW** (부가세 포함)")
                 st.markdown("---")
+
+                # 중복이므로 추가적인 분석 로직은 실행하지 않음
                 pass 
+                
             else:
-                analyze_button = st.button("✨ Start Receipt Analysis")
+                # 중복이 아닌 경우: 분석 버튼을 활성화하고, 버튼이 눌리면 분석을 실행합니다.
+                analyze_button = st.button("✨ Start Receipt Analysis", key="analyze_active")
+
+                if analyze_button:
+                    # AI 분석 실행 로직 (기존 코드와 동일)
+                    st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
+                    with st.spinner('AI is reading the receipt...'):
+                        
+                        json_data_text = analyze_receipt_with_gemini(image)
+
+                        if json_data_text:
+                            # ... (데이터 파싱 및 저장 로직 전체) ...
+                            # ... (데이터프레임 편집 및 저장 로직 전체) ...
+                            
+                            # 💡 저장 완료 후
+                            st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
+                            st.rerun()
+                        else:
+                            st.error("Analysis failed to complete. Please try again.")
+
+    st.markdown("---")
 
             if analyze_button and not is_already_analyzed:
                 st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
