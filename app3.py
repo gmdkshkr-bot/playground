@@ -272,16 +272,16 @@ with st.sidebar:
     st.markdown("""
     This application helps you manage your household ledger easily by using AI.
     1. **Upload / Manual Input:** Enter spending data via receipt image or manual form.
-    2. **Auto-Convert:** Foreign currencies are automatically converted to **KRW** using real-time rates.
-    3. **Analyze & Accumulate:** Results are added to the cumulative record.
-    4. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
+    2. **Analyze & Accumulate:** Results are added to the cumulative record.
+    3. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
+    4. **Export & Continue:** Export the current record in CSV, load the CSV to continue recording.
     """)
     
     st.markdown("---")
     if st.session_state.all_receipts_items:
         st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") # Summary 기준으로 갯수 표시
         
-st.title("🧾 AI Household Ledger: Receipt Analysis & Cumulative Tracking")
+st.title("🧾 Receipt Recorder powered by AI")
 st.markdown("---")
 
 
@@ -497,7 +497,7 @@ with tab1:
             if is_already_analyzed:
                 
                 # 💡 중복된 경우, 경고 메시지 표시 및 저장된 결과 표시
-                st.warning(f"⚠️ 이 영수증 ({uploaded_file.name})은 이미 분석되어 기록되었습니다. 중복 기록은 막았습니다.")
+                st.warning(f"⚠️ This receipt ({uploaded_file.name}) is already analyzed. Prevent recording the same data multiple times")
                 analyze_button = st.button("✨ Start Receipt Analysis", disabled=True)
                 
                 # 💡 저장된 Summary 데이터로 분석 결과를 바로 표시
@@ -532,7 +532,7 @@ with tab1:
             if analyze_button and not is_already_analyzed:
                 
                 st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
-                with st.spinner('AI is meticulously reading the receipt...'):
+                with st.spinner('AI is reading the receipt...'):
                     
                     json_data_text = analyze_receipt_with_gemini(image)
 
