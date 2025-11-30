@@ -9,7 +9,6 @@ import plotly.express as px
 import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
-# 📢 New import for Geocoding (Placeholder for demonstration)
 import time 
 
 # ----------------------------------------------------------------------
@@ -20,35 +19,56 @@ try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
     EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
-    # GEOCoding API Key는 이 예시에서는 사용하지 않지만, 실제 사용 시 필요합니다.
-    # GEOCODING_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
+    # 📢 [NEW] 카카오 API 키 로드
+    KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
+    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
     st.stop()
 
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
-# --- 📢 [NEW] Geocoding Helper Function (Placeholder) ---
-# 실제 Geocoding API를 호출해야 하는 부분입니다.
+# --- 📢 [UPDATED] Geocoding Helper Function (Kakao API 적용) ---
 @st.cache_data(ttl=datetime.timedelta(hours=48))
-def geocode_address_placeholder(address: str) -> tuple[float, float]:
+def geocode_address(address: str) -> tuple[float, float]:
     """
-    주소를 위도와 경도로 변환하는 더미 함수 (실제 API 호출로 대체 필요).
+    카카오 로컬 API를 사용하여 주소를 위도와 경도로 변환합니다. (Kakao Maps API)
     """
-    if '서울' in address:
-        # 서울 근처의 임의 좌표를 반환합니다.
-        # 서울시청 근처를 기준으로 약간의 랜덤 노이즈 추가
-        lat = 37.5665 + np.random.normal(0, 0.05)
-        lon = 126.9780 + np.random.normal(0, 0.05)
-        return lat, lon
-    elif 'Seoul' in address:
-        lat = 37.5665 + np.random.normal(0, 0.05)
-        lon = 126.9780 + np.random.normal(0, 0.05)
-        return lat, lon
-    else:
-        # 기타 지역은 임시 기본값
+    if not address or address == "Manual Input Location" or address == "Imported Location":
+        # 유효하지 않은 주소는 서울 중심의 기본 좌표를 반환
         return 37.5665, 126.9780
+    
+    # 📢 Kakao Local API 호출 설정
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+    params = {"query": address}
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data and data.get('documents'):
+            # 첫 번째 검색 결과 사용
+            document = data['documents'][0]
+            # Kakao API는 경도(x)를 먼저, 위도(y)를 나중에 반환합니다.
+            lat = float(document.get('y', 0))
+            lon = float(document.get('x', 0))
+            
+            # 유효성 검사
+            if lat != 0 and lon != 0:
+                return lat, lon
+
+    except requests.exceptions.RequestException as e:
+        # API 요청 오류 (네트워크, 4xx, 5xx 오류)
+        st.sidebar.error(f"❌ Kakao Geocoding API Error for '{address}'. Using fallback: {e}")
+    except Exception as e:
+        # JSON 파싱 등 기타 오류
+        st.sidebar.warning(f"⚠️ Geocoding Processing Error for '{address}'. Using fallback: {e}")
+
+    # 모든 실패 시나리오에서 서울 기본 좌표 반환
+    return 37.5665, 126.9780
+
 
 # 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
 def safe_get_amount(data, key):
@@ -75,7 +95,7 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
     current_date = datetime.date.today().strftime('%Y-%m-%d')
     
     # 📢 [NEW] CSV Import 시 임시 좌표 사용
-    lat, lon = geocode_address_placeholder("Imported Location")
+    lat, lon = geocode_address("Imported Location")
     
     summary_data = {
         'id': f"imported-{pd.Timestamp.now().timestamp()}",
@@ -713,7 +733,8 @@ with tab1:
                                 krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
                                 
                                 # 📢 [NEW] 위치 정보에 대한 좌표 추출
-                                lat, lon = geocode_address_placeholder(final_location)
+                                # geocode_address_placeholder 대신 실제 API 호출 함수를 사용합니다.
+                                lat, lon = geocode_address(final_location)
                                 
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
@@ -793,7 +814,8 @@ with tab1:
 
                 # 📢 [NEW] 위치 정보에 대한 좌표 추출
                 final_location = manual_location if manual_location else "Manual Input Location"
-                lat, lon = geocode_address_placeholder(final_location)
+                # geocode_address_placeholder 대신 실제 API 호출 함수를 사용합니다.
+                lat, lon = geocode_address(final_location)
                 
                 # 1. Prepare Item DataFrame 
                 manual_df = pd.DataFrame([{
