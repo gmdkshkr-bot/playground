@@ -405,69 +405,70 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 # ======================================================================
 with tab1:
     
-    # 💡 신규 기능: CSV 파일 업로드 섹션 시작
-    st.subheader("📁 Load Previous Record (CSV Upload)")
+    # --- 📢 [NEW] CSV/Image Upload Section (Parallel Columns) ---
+    st.subheader("📁 Data Input & AI Analysis")
     
-    # 파일을 불러온 후, 처리 상태를 저장할 임시 키
-    if 'csv_load_triggered' not in st.session_state:
-        st.session_state.csv_load_triggered = False
+    col_csv, col_img = st.columns(2)
+    
+    # 1. CSV Upload Section (Left Column)
+    with col_csv:
+        st.markdown("**Load Previous Record (CSV Upload)**")
         
-    uploaded_csv_file = st.file_uploader(
-        "Upload a previously downloaded ledger CSV file (e.g., record_YYYYMMDD.csv)",
-        type=['csv'],
-        accept_multiple_files=False,
-        key='csv_uploader', 
-        # 💡 on_change 콜백 함수를 사용하여 파일이 업로드되면 플래그를 True로 설정
-        on_change=lambda: st.session_state.__setitem__('csv_load_triggered', True)
-    )
+        # 파일을 불러온 후, 처리 상태를 저장할 임시 키
+        if 'csv_load_triggered' not in st.session_state:
+            st.session_state.csv_load_triggered = False
+            
+        uploaded_csv_file = st.file_uploader(
+            "Upload a previously downloaded ledger CSV file",
+            type=['csv'],
+            accept_multiple_files=False,
+            key='csv_uploader', 
+            on_change=lambda: st.session_state.__setitem__('csv_load_triggered', True)
+        )
 
-    # 💡 로직 분리: 파일이 업로드되었고, 아직 처리되지 않았다면 처리 시작
-    if st.session_state.csv_load_triggered and uploaded_csv_file is not None:
-        
-        st.session_state.csv_load_triggered = False # 재실행 방지를 위해 즉시 초기화
-        
-        try:
-            # CSV 파일을 DataFrame으로 읽기
-            imported_df = pd.read_csv(uploaded_csv_file)
+        # 💡 로직 분리: 파일이 업로드되었고, 아직 처리되지 않았다면 처리 시작
+        if st.session_state.csv_load_triggered and uploaded_csv_file is not None:
             
-            # 필수 컬럼 검증
-            required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+            st.session_state.csv_load_triggered = False # 재실행 방지를 위해 즉시 초기화
             
-            if not all(col in imported_df.columns for col in required_cols):
-                st.error("❌ 업로드된 CSV 파일에 필수 컬럼이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
-            else:
-                # 1. 아이템 목록에 추가
-                st.session_state.all_receipts_items.append(imported_df)
+            try:
+                # CSV 파일을 DataFrame으로 읽기
+                imported_df = pd.read_csv(uploaded_csv_file)
                 
-                # 2. Summary 데이터 재구성 및 추가
-                summary_data = regenerate_summary_data(imported_df)
-                if summary_data:
-                    st.session_state.all_receipts_summary.append(summary_data)
-                    st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
-                    
-                    # 💡 파일 업로드 위젯의 값 자체를 None으로 만드는 대신, 위젯 키를 초기화하는 콜백을 호출 (재실행 유발)
-                    # 여기서는 성공했으므로 st.rerun()을 호출하여 화면에 반영합니다.
-                    # ⚠️ 파일 업로더의 상태를 수동으로 None으로 설정하는 것은 위에서 언급한 오류를 유발하므로,
-                    #    가장 간단하게는 재실행 후 위젯이 다시 그려지면서 초기화되도록 유도합니다.
-                    st.rerun()
+                # 필수 컬럼 검증
+                required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+                
+                if not all(col in imported_df.columns for col in required_cols):
+                    st.error("❌ 업로드된 CSV 파일에 필수 컬럼이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
                 else:
-                    st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
-            
-        except Exception as e:
-            st.error(f"❌ CSV 파일을 처리하는 중 오류가 발생했습니다: {e}")
-            
-            
-    st.markdown("---")
-    # 💡 신규 기능: CSV 파일 업로드 섹션 끝
-    
-    # --- File Uploader and Analysis ---
-    st.subheader("📸 Upload Receipt Image (AI Analysis)")
-    uploaded_file = st.file_uploader(
-        "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
-        type=['jpg', 'png', 'jpeg'],
-        accept_multiple_files=False 
-    )
+                    # 1. 아이템 목록에 추가
+                    st.session_state.all_receipts_items.append(imported_df)
+                    
+                    # 2. Summary 데이터 재구성 및 추가
+                    summary_data = regenerate_summary_data(imported_df)
+                    if summary_data:
+                        st.session_state.all_receipts_summary.append(summary_data)
+                        st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
+                
+            except Exception as e:
+                st.error(f"❌ CSV 파일을 처리하는 중 오류가 발생했습니다: {e}")
 
+    # 2. Image Upload Section (Right Column)
+    with col_img:
+        st.markdown("**Upload Receipt Image (AI Analysis)**")
+        uploaded_file = st.file_uploader(
+            "Upload one receipt image (jpg, png) at a time.", 
+            type=['jpg', 'png', 'jpeg'],
+            accept_multiple_files=False,
+            key='receipt_uploader' # CSV Uploader와 키 충돌 방지
+        )
+
+
+    st.markdown("---")
+    # --- 📢 [NEW] CSV/Image Upload Section End ---
 
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
@@ -476,6 +477,7 @@ with tab1:
         existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
         is_already_analyzed = existing_summary is not None
         
+        # UI 레이아웃 변경 (이미지 표시 및 분석 결과)
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("🖼️ Uploaded Receipt")
