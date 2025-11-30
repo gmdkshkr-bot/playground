@@ -9,6 +9,8 @@ import plotly.express as px
 import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
+# 📢 New import for Geocoding (Placeholder for demonstration)
+import time 
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
@@ -18,12 +20,35 @@ try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
     EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    # GEOCoding API Key는 이 예시에서는 사용하지 않지만, 실제 사용 시 필요합니다.
+    # GEOCODING_API_KEY = st.secrets["GOOGLE_MAPS_API_KEY"]
 except KeyError:
     st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
     st.stop()
 
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
+
+# --- 📢 [NEW] Geocoding Helper Function (Placeholder) ---
+# 실제 Geocoding API를 호출해야 하는 부분입니다.
+@st.cache_data(ttl=datetime.timedelta(hours=48))
+def geocode_address_placeholder(address: str) -> tuple[float, float]:
+    """
+    주소를 위도와 경도로 변환하는 더미 함수 (실제 API 호출로 대체 필요).
+    """
+    if '서울' in address:
+        # 서울 근처의 임의 좌표를 반환합니다.
+        # 서울시청 근처를 기준으로 약간의 랜덤 노이즈 추가
+        lat = 37.5665 + np.random.normal(0, 0.05)
+        lon = 126.9780 + np.random.normal(0, 0.05)
+        return lat, lon
+    elif 'Seoul' in address:
+        lat = 37.5665 + np.random.normal(0, 0.05)
+        lon = 126.9780 + np.random.normal(0, 0.05)
+        return lat, lon
+    else:
+        # 기타 지역은 임시 기본값
+        return 37.5665, 126.9780
 
 # 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
 def safe_get_amount(data, key):
@@ -49,6 +74,9 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
     # CSV Import 기록은 메타데이터가 없으므로 임의의 값 또는 기본값을 사용
     current_date = datetime.date.today().strftime('%Y-%m-%d')
     
+    # 📢 [NEW] CSV Import 시 임시 좌표 사용
+    lat, lon = geocode_address_placeholder("Imported Location")
+    
     summary_data = {
         'id': f"imported-{pd.Timestamp.now().timestamp()}",
         'filename': 'Imported CSV',
@@ -61,7 +89,10 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
         'Date': current_date, 
         'Location': 'Imported Location', 
         'Original_Total': final_total_krw, 
-        'Original_Currency': 'KRW' 
+        'Original_Currency': 'KRW',
+        # 📢 [NEW] 좌표 추가
+        'latitude': lat,
+        'longitude': lon
     }
     return summary_data
 
@@ -681,6 +712,9 @@ with tab1:
                                 krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
                                 krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
                                 
+                                # 📢 [NEW] 위치 정보에 대한 좌표 추출
+                                lat, lon = geocode_address_placeholder(final_location)
+                                
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
                                 
@@ -698,7 +732,10 @@ with tab1:
                                     'Date': final_date, 
                                     'Location': final_location, 
                                     'Original_Total': total_amount, # 교정된 total_amount 사용
-                                    'Original_Currency': display_unit 
+                                    'Original_Currency': display_unit,
+                                    # 📢 [NEW] 좌표 추가
+                                    'latitude': lat,
+                                    'longitude': lon
                                 })
 
                                 st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
@@ -754,6 +791,10 @@ with tab1:
                 krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
                 applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0)
 
+                # 📢 [NEW] 위치 정보에 대한 좌표 추출
+                final_location = manual_location if manual_location else "Manual Input Location"
+                lat, lon = geocode_address_placeholder(final_location)
+                
                 # 1. Prepare Item DataFrame 
                 manual_df = pd.DataFrame([{
                     'Item Name': manual_description,
@@ -775,9 +816,12 @@ with tab1:
                     'Tip_KRW': 0.0, 
                     'Currency': 'KRW', 
                     'Date': manual_date.strftime('%Y-%m-%d'),
-                    'Location': manual_location if manual_location else "Manual Input Location", 
+                    'Location': final_location, 
                     'Original_Total': manual_amount, 
-                    'Original_Currency': manual_currency 
+                    'Original_Currency': manual_currency,
+                    # 📢 [NEW] 좌표 추가
+                    'latitude': lat,
+                    'longitude': lon
                 }
                 
                 # 3. Accumulate Data
@@ -833,6 +877,11 @@ with tab1:
             summary_df['Tip_KRW'] = 0.0
         if 'Location' not in summary_df.columns:
             summary_df['Location'] = 'N/A'
+        # 📢 [NEW] 좌표 컬럼 호환성 확보
+        if 'latitude' not in summary_df.columns:
+            summary_df['latitude'] = 37.5665
+        if 'longitude' not in summary_df.columns:
+            summary_df['longitude'] = 126.9780
             
         # Conditional formatting for Amount Paid
         def format_amount_paid(row):
@@ -849,11 +898,11 @@ with tab1:
         
         summary_df = summary_df.drop(columns=['id'])
         # 💡 Location 컬럼을 추가하여 표시
-        summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
-        summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
+        summary_df_display = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
+        summary_df_display.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
 
         st.dataframe(
-            summary_df, 
+            summary_df_display, 
             use_container_width=True, 
             hide_index=True,
             column_config={
@@ -869,6 +918,53 @@ with tab1:
         )
         
         st.markdown("---")
+        
+        # --- 📢 [NEW] Map Visualization Section ---
+        st.subheader("📍 Spending Map Visualization")
+        
+        map_df = summary_df.copy()
+        # st.map은 'lat'과 'lon' 컬럼을 기대합니다.
+        map_df.columns = [col.replace('latitude', 'lat').replace('longitude', 'lon') for col in map_df.columns]
+
+        if not map_df.empty and 'lat' in map_df.columns and 'lon' in map_df.columns:
+            
+            # 지출액이 0인 항목은 시각화에서 제외
+            map_data = map_df[map_df['Total'] > 0]
+            
+            # 중앙 위치 계산 (전체 데이터의 평균)
+            center_lat = map_data['lat'].mean()
+            center_lon = map_data['lon'].mean()
+            
+            st.map(
+                map_data, 
+                latitude='lat', 
+                longitude='lon', 
+                color='#ff6347', # 산호색
+                zoom=11, 
+                use_container_width=True
+            )
+            
+            # Plotly로 지출액에 따른 마커 크기 시각화 (선택 사항)
+            # fig = px.scatter_mapbox(
+            #     map_data, 
+            #     lat="lat", 
+            #     lon="lon", 
+            #     hover_name="Store",
+            #     hover_data={"Amount Paid": True, "lat": False, "lon": False},
+            #     color_discrete_sequence=["fuchsia"], 
+            #     zoom=10, 
+            #     height=400,
+            #     size="Total" # 지출 금액을 마커 크기로 사용
+            # )
+            # fig.update_layout(mapbox_style="open-street-map")
+            # fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+            # st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.warning("위치 정보가 없거나 좌표가 유효하지 않아 지도를 표시할 수 없습니다.")
+
+        st.markdown("---")
+        # --- 📢 [NEW] Map Visualization Section End ---
         
         st.subheader("🛒 Integrated Detail Items") 
         
