@@ -175,7 +175,7 @@ if 'all_receipts_summary' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'last_data_hash' not in st.session_state:
-    st.session_state.last_data_hash = None # 💡 Hash for data change detection
+    st.session_state.last_data_hash = None 
 
 st.set_page_config(
     page_title="Smart Receipt Analyzer & Tracker 🧾",
@@ -301,6 +301,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
             contents=[prompt_template],
         )
         return response.text
+    
     except Exception as e:
         return "Failed to generate analysis report."
 
@@ -352,7 +353,7 @@ with tab1:
             
     st.markdown("---")
     
-    # --- File Uploader and Analysis (Original Code with minor fix on Total calculation) ---
+    # --- File Uploader and Analysis (버그 수정 반영) ---
     st.subheader("📸 Upload Receipt Image (AI Analysis)")
     uploaded_file = st.file_uploader(
         "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
@@ -363,8 +364,6 @@ with tab1:
 
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
-        
-        # 💡 중복 파일 체크
         existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
         is_already_analyzed = existing_summary is not None
         
@@ -377,11 +376,12 @@ with tab1:
         with col2:
             st.subheader("📊 Analysis and Recording")
             
+            # 🚨 CRITICAL FIX: 이미 분석된 파일일 경우, 버튼 클릭 없이 저장된 데이터를 바로 표시합니다.
             if is_already_analyzed:
                 
-                # 💡 중복된 경우: 분석 버튼을 비활성화하고, 저장된 데이터를 바로 표시합니다.
                 st.warning(f"⚠️ This receipt ({uploaded_file.name}) is already analyzed. Data is **not recorded again**.")
-                analyze_button_disabled = st.button("✨ Start Receipt Analysis", disabled=True, key="analyze_disabled")
+                # 분석 버튼 비활성화 (재기록 방지)
+                st.button("✨ Start Receipt Analysis", disabled=True, key="analyze_disabled")
                 
                 # --- 저장된 결과 표시 로직 ---
                 display_unit = existing_summary['Original_Currency']
@@ -401,151 +401,131 @@ with tab1:
                 st.info(f"누적 기록 총액 (KRW): **{existing_summary.get('Total', 0):,.0f} KRW** (부가세 포함)")
                 st.markdown("---")
 
-                # 중복이므로 추가적인 분석 로직은 실행하지 않음
+                # 이 블록에서 실행이 종료되어 재분석/재기록을 방지합니다.
                 pass 
                 
+            # 신규 파일일 경우
             else:
-                # 중복이 아닌 경우: 분석 버튼을 활성화하고, 버튼이 눌리면 분석을 실행합니다.
+                # 분석 버튼 활성화
                 analyze_button = st.button("✨ Start Receipt Analysis", key="analyze_active")
 
                 if analyze_button:
-                    # AI 분석 실행 로직 (기존 코드와 동일)
+                    # AI 분석 실행 로직
                     st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
                     with st.spinner('AI is reading the receipt...'):
-                        
                         json_data_text = analyze_receipt_with_gemini(image)
 
                         if json_data_text:
-                            # ... (데이터 파싱 및 저장 로직 전체) ...
-                            # ... (데이터프레임 편집 및 저장 로직 전체) ...
-                            
-                            # 💡 저장 완료 후
-                            st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
-                            st.rerun()
+                            try:
+                                # JSON 파싱 및 데이터 정리 (Original Code)
+                                cleaned_text = json_data_text.strip()
+                                if cleaned_text.startswith("```json"):
+                                    cleaned_text = cleaned_text.lstrip("```json")
+                                if cleaned_text.endswith("```"):
+                                    cleaned_text = cleaned_text.rstrip("```")
+                                receipt_data = json.loads(cleaned_text.strip()) 
+                                
+                                total_amount = safe_get_amount(receipt_data, 'total_amount')
+                                tax_amount = safe_get_amount(receipt_data, 'tax_amount')
+                                tip_amount = safe_get_amount(receipt_data, 'tip_amount')
+                                discount_amount = safe_get_amount(receipt_data, 'discount_amount')
+                                currency_unit = receipt_data.get('currency_unit', '').strip()
+                                display_unit = currency_unit if currency_unit else 'KRW'
+                                receipt_date_str = receipt_data.get('date', '').strip()
+                                store_location_str = receipt_data.get('store_location', '').strip()
+                                
+                                try:
+                                    date_object = pd.to_datetime(receipt_date_str, format='%Y-%m-%d', errors='raise').date()
+                                    final_date = date_object.strftime('%Y-%m-%d')
+                                except (ValueError, TypeError):
+                                    final_date = datetime.date.today().strftime('%Y-%m-%d')
+                                    st.warning("⚠️ AI가 인식한 날짜가 유효하지 않아 오늘 날짜로 대체되었습니다.")
+                                    
+                                final_location = store_location_str if store_location_str else "Seoul"
+
+                                # --- Main Information Display ---
+                                st.success("✅ Analysis Complete! Check the ledger data below.")
+                                st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
+                                st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
+                                if discount_amount > 0:
+                                    st.markdown(f"**🎁 Total Discount:** {discount_amount:,.2f} {display_unit}") 
+                                if tax_amount > 0 or tip_amount > 0:
+                                    st.markdown(f"**🧾 Tax/VAT:** {tax_amount:,.2f} {display_unit} | **💸 Tip:** {tip_amount:,.2f} {display_unit}")
+                                st.markdown("---")
+
+                                if 'items' in receipt_data and receipt_data['items']:
+                                    items_df = pd.DataFrame(receipt_data['items'])
+                                    items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
+                                    items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
+                                    items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
+                                    items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
+                                    
+                                    # --- 할인 안분 로직 (Original Code) ---
+                                    items_df['Discount Applied'] = 0.0
+                                    items_df['Total Spend'] = items_df['Total Spend Original']
+                                    total_item_original = items_df['Total Spend Original'].sum()
+                                    if discount_amount > 0 and total_item_original > 0:
+                                        discount_rate = discount_amount / total_item_original
+                                        items_df['Discount Applied'] = items_df['Total Spend Original'] * discount_rate
+                                        items_df['Total Spend'] = items_df['Total Spend Original'] - items_df['Discount Applied']
+                                        st.info(f"💡 Discount of {discount_amount:,.0f} {display_unit} successfully allocated across items.")
+                                    
+                                    st.subheader("🛒 Detailed Item Breakdown (Category Editable)")
+                                    edited_df = st.data_editor(
+                                        items_df.drop(columns=['Total Spend Original', 'Discount Applied', 'Total Spend']), 
+                                        column_config={
+                                            "AI Category": st.column_config.SelectboxColumn("Final Category", help="Select the correct sub-category for this item.", width="medium", options=ALL_CATEGORIES, required=True),
+                                        },
+                                        disabled=['Item Name', 'Unit Price', 'Quantity'], 
+                                        hide_index=True,
+                                        use_container_width=True
+                                    )
+                                    
+                                    # --- 통화 변환 및 Summary 저장 로직 (수정 반영) ---
+                                    edited_df['Total Spend'] = items_df['Total Spend']
+                                    edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
+                                    edited_df['Currency'] = display_unit
+                                    
+                                    edited_df['KRW Total Spend'] = edited_df.apply(
+                                        lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
+                                    )
+                                    edited_df = edited_df.drop(columns=['Total Spend Numeric'])
+
+                                    krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
+                                    krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
+                                    
+                                    # Summary Total 금액은 아이템 총합(VAT 포함) + Tip만 더합니다.
+                                    final_total_krw = edited_df['KRW Total Spend'].sum() + krw_tip_total
+                                    
+                                    # ** Accumulate Data: Store the edited DataFrame **
+                                    st.session_state.all_receipts_items.append(edited_df)
+                                    
+                                    st.session_state.all_receipts_summary.append({
+                                        'id': file_id, 
+                                        'filename': uploaded_file.name,
+                                        'Store': receipt_data.get('store_name', 'N/A'),
+                                        'Total': final_total_krw, 
+                                        'Tax_KRW': krw_tax_total, 
+                                        'Tip_KRW': krw_tip_total, 
+                                        'Currency': 'KRW', 
+                                        'Date': final_date, 
+                                        'Location': final_location, 
+                                        'Original_Total': total_amount, 
+                                        'Original_Currency': display_unit 
+                                    })
+
+                                    st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
+                                    st.rerun()
+
+                                else:
+                                    st.warning("Item list could not be found in the analysis result.")
+
+                            except json.JSONDecodeError:
+                                st.error("❌ Gemini analysis result is not a valid JSON format. (JSON parsing error)")
+                            except Exception as e:
+                                st.error(f"Unexpected error occurred during data processing: {e}")
                         else:
                             st.error("Analysis failed to complete. Please try again.")
-
-    st.markdown("---")
-
-            if analyze_button and not is_already_analyzed:
-                st.info("💡 Starting Gemini analysis. This may take 10-20 seconds.")
-                with st.spinner('AI is reading the receipt...'):
-                    json_data_text = analyze_receipt_with_gemini(image)
-
-                    if json_data_text:
-                        try:
-                            # JSON 파싱 및 데이터 정리 (Original Code)
-                            cleaned_text = json_data_text.strip()
-                            if cleaned_text.startswith("```json"):
-                                cleaned_text = cleaned_text.lstrip("```json")
-                            if cleaned_text.endswith("```"):
-                                cleaned_text = cleaned_text.rstrip("```")
-                            receipt_data = json.loads(cleaned_text.strip()) 
-                            
-                            total_amount = safe_get_amount(receipt_data, 'total_amount')
-                            tax_amount = safe_get_amount(receipt_data, 'tax_amount')
-                            tip_amount = safe_get_amount(receipt_data, 'tip_amount')
-                            discount_amount = safe_get_amount(receipt_data, 'discount_amount')
-                            currency_unit = receipt_data.get('currency_unit', '').strip()
-                            display_unit = currency_unit if currency_unit else 'KRW'
-                            receipt_date_str = receipt_data.get('date', '').strip()
-                            store_location_str = receipt_data.get('store_location', '').strip()
-                            
-                            try:
-                                date_object = pd.to_datetime(receipt_date_str, format='%Y-%m-%d', errors='raise').date()
-                                final_date = date_object.strftime('%Y-%m-%d')
-                            except (ValueError, TypeError):
-                                final_date = datetime.date.today().strftime('%Y-%m-%d')
-                                st.warning("⚠️ AI가 인식한 날짜가 유효하지 않아 오늘 날짜로 대체되었습니다.")
-                                
-                            final_location = store_location_str if store_location_str else "Seoul"
-
-                            # --- Main Information Display ---
-                            st.success("✅ Analysis Complete! Check the ledger data below.")
-                            st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
-                            st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
-                            if discount_amount > 0:
-                                st.markdown(f"**🎁 Total Discount:** {discount_amount:,.2f} {display_unit}") 
-                            if tax_amount > 0 or tip_amount > 0:
-                                st.markdown(f"**🧾 Tax/VAT:** {tax_amount:,.2f} {display_unit} | **💸 Tip:** {tip_amount:,.2f} {display_unit}")
-                            st.markdown("---")
-
-                            if 'items' in receipt_data and receipt_data['items']:
-                                items_df = pd.DataFrame(receipt_data['items'])
-                                items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
-                                items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
-                                items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
-                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
-                                
-                                # --- 할인 안분 로직 (Original Code) ---
-                                items_df['Discount Applied'] = 0.0
-                                items_df['Total Spend'] = items_df['Total Spend Original']
-                                total_item_original = items_df['Total Spend Original'].sum()
-                                if discount_amount > 0 and total_item_original > 0:
-                                    discount_rate = discount_amount / total_item_original
-                                    items_df['Discount Applied'] = items_df['Total Spend Original'] * discount_rate
-                                    items_df['Total Spend'] = items_df['Total Spend Original'] - items_df['Discount Applied']
-                                    st.info(f"💡 Discount of {discount_amount:,.0f} {display_unit} successfully allocated across items.")
-                                
-                                st.subheader("🛒 Detailed Item Breakdown (Category Editable)")
-                                edited_df = st.data_editor(
-                                    items_df.drop(columns=['Total Spend Original', 'Discount Applied', 'Total Spend']), 
-                                    column_config={
-                                        "AI Category": st.column_config.SelectboxColumn("Final Category", help="Select the correct sub-category for this item.", width="medium", options=ALL_CATEGORIES, required=True),
-                                    },
-                                    disabled=['Item Name', 'Unit Price', 'Quantity'], 
-                                    hide_index=True,
-                                    use_container_width=True
-                                )
-                                
-                                # --- 통화 변환 및 Summary 저장 로직 (수정 반영) ---
-                                edited_df['Total Spend'] = items_df['Total Spend']
-                                edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
-                                edited_df['Currency'] = display_unit
-                                
-                                # KRW Total Spend 계산 (VAT 포함된 채로 유지)
-                                edited_df['KRW Total Spend'] = edited_df.apply(
-                                    lambda row: convert_to_krw(row['Total Spend Numeric'], row['Currency'], EXCHANGE_RATES), axis=1
-                                )
-                                edited_df = edited_df.drop(columns=['Total Spend Numeric'])
-
-                                # 💡 세금과 팁도 원화로 환산
-                                krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
-                                krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
-                                
-                                # ** CRITICAL FIX: final_total_krw는 VAT가 포함된 아이템 총합 + Tip만 더합니다.
-                                #    (163,600 KRW + Tip)이 되도록 합니다.
-                                final_total_krw = edited_df['KRW Total Spend'].sum() + krw_tip_total
-                                
-                                # ** Accumulate Data: Store the edited DataFrame **
-                                st.session_state.all_receipts_items.append(edited_df)
-                                
-                                st.session_state.all_receipts_summary.append({
-                                    'id': file_id, 
-                                    'filename': uploaded_file.name,
-                                    'Store': receipt_data.get('store_name', 'N/A'),
-                                    'Total': final_total_krw, # 💡 아이템 총합(VAT 포함) + Tip
-                                    'Tax_KRW': krw_tax_total, 
-                                    'Tip_KRW': krw_tip_total, 
-                                    'Currency': 'KRW', 
-                                    'Date': final_date, 
-                                    'Location': final_location, 
-                                    'Original_Total': total_amount, 
-                                    'Original_Currency': display_unit 
-                                })
-
-                                st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
-                                st.rerun()
-
-                            else:
-                                st.warning("Item list could not be found in the analysis result.")
-
-                        except json.JSONDecodeError:
-                            st.error("❌ Gemini analysis result is not a valid JSON format. (JSON parsing error)")
-                        except Exception as e:
-                            st.error(f"Unexpected error occurred during data processing: {e}")
-                    else:
-                        st.error("Analysis failed to complete. Please try again.")
 
     st.markdown("---")
     
@@ -594,7 +574,7 @@ with tab1:
 
     st.markdown("---")
     
-    # --- Cumulative Data Analysis Section (Original Code) ---
+    # --- Cumulative Data Analysis Section (Original Code + Tax Fix) ---
     if st.session_state.all_receipts_items:
         st.markdown("---")
         st.title("📚 Cumulative Spending Analysis Report")
@@ -659,12 +639,10 @@ with tab1:
         category_summary = all_items_df_numeric.groupby('AI Category')['KRW Total Spend'].sum().reset_index()
         category_summary.columns = ['Category', 'Amount']
         
-        # 💡 Tax 합산 로직 제거 (일관성 유지 및 Chatbot 오류 방지)
+        # 💡 Tax 합산 로직 제거 (Chart 일관성 유지)
         total_tax_krw = summary_df['Tax (KRW)'].sum()
         total_tip_krw = summary_df['Tip (KRW)'].sum()
         
-        # if total_tax_krw > 0:
-        #     category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', total_tax_krw] # 🚨 이 줄을 제거했습니다.
         if total_tip_krw > 0:
             category_summary.loc[len(category_summary)] = ['팁 (Tip)', total_tip_krw]
             
@@ -785,9 +763,10 @@ with tab2:
         summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
         
         tax_tip_only_total = 0.0
-        # 🚨 CRITICAL FIX: Tax_KRW 합산 로직을 삭제합니다. Tip만 합산하여 Fixed Cost에 반영합니다.
+        # 🚨 CRITICAL FIX: Tax_KRW 합산 로직을 삭제하여 이중 계산을 방지합니다.
         # if 'Tax_KRW' in summary_df_for_chat.columns:
         #     tax_tip_only_total += summary_df_for_chat['Tax_KRW'].sum() 
+
         if 'Tip_KRW' in summary_df_for_chat.columns:
             tax_tip_only_total += summary_df_for_chat['Tip_KRW'].sum() # Tip만 합산
 
@@ -801,7 +780,7 @@ with tab2:
                  psychological_summary = pd.concat([psychological_summary, new_row], ignore_index=True)
 
 
-        total_spent = psychological_summary['KRW Total Spend'].sum() # 💡 이제 이 값은 VAT가 포함된 아이템 합계 + Tip
+        total_spent = psychological_summary['KRW Total Spend'].sum() 
         
         # Calculate the Impulse Spending Index
         impulse_spending = psychological_summary.loc[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[2], 'KRW Total Spend'].sum()
