@@ -18,11 +18,11 @@ import time
 try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    EXCHANGE_RATE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
     # 📢 [NEW] 카카오 API 키 로드
     KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
+    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
     st.stop()
 
 # Initialize GenAI client
@@ -998,8 +998,10 @@ with tab1:
         category_summary.columns = ['Category', 'Amount']
         
         # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시
-        total_tax_krw = summary_df['Tax (KRW)'].sum()
-        total_tip_krw = summary_df['Tip (KRW)'].sum()
+        # 📢 [FIX] 'Tax (KRW)' 대신 실제 컬럼 이름인 'Tax_KRW'를 사용합니다.
+        total_tax_krw = summary_df['Tax_KRW'].sum()
+        # 📢 [FIX] 'Tip (KRW)' 대신 실제 컬럼 이름인 'Tip_KRW'를 사용합니다.
+        total_tip_krw = summary_df['Tip_KRW'].sum()
         
         if total_tax_krw > 0:
             category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', total_tax_krw]
