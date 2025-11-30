@@ -928,40 +928,28 @@ with tab1:
 
         if not map_df.empty and 'lat' in map_df.columns and 'lon' in map_df.columns:
             
-            # 지출액이 0인 항목은 시각화에서 제외
-            map_data = map_df[map_df['Total'] > 0]
+            # 📢 [CRITICAL FIX] lat/lon 컬럼의 결측치(NaN)가 StreamlitAPIException을 발생시키므로,
+            #    유효한 좌표를 가진 행만 필터링합니다.
+            map_data = map_df[map_df['Total'] > 0].dropna(subset=['lat', 'lon'])
             
-            # 중앙 위치 계산 (전체 데이터의 평균)
-            center_lat = map_data['lat'].mean()
-            center_lon = map_data['lon'].mean()
+            if not map_data.empty:
+                # 중앙 위치 계산 (전체 데이터의 평균)
+                # center_lat = map_data['lat'].mean()
+                # center_lon = map_data['lon'].mean()
+                
+                st.map(
+                    map_data, 
+                    latitude='lat', 
+                    longitude='lon', 
+                    color='#ff6347', # 산호색
+                    zoom=11, 
+                    use_container_width=True
+                )
             
-            st.map(
-                map_data, 
-                latitude='lat', 
-                longitude='lon', 
-                color='#ff6347', # 산호색
-                zoom=11, 
-                use_container_width=True
-            )
-            
-            # Plotly로 지출액에 따른 마커 크기 시각화 (선택 사항)
-            # fig = px.scatter_mapbox(
-            #     map_data, 
-            #     lat="lat", 
-            #     lon="lon", 
-            #     hover_name="Store",
-            #     hover_data={"Amount Paid": True, "lat": False, "lon": False},
-            #     color_discrete_sequence=["fuchsia"], 
-            #     zoom=10, 
-            #     height=400,
-            #     size="Total" # 지출 금액을 마커 크기로 사용
-            # )
-            # fig.update_layout(mapbox_style="open-street-map")
-            # fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-            # st.plotly_chart(fig, use_container_width=True)
-
+            else:
+                st.warning("유효한 좌표 정보가 있는 지출 기록이 없어 지도를 표시할 수 없습니다.")
         else:
-            st.warning("위치 정보가 없거나 좌표가 유효하지 않아 지도를 표시할 수 없습니다.")
+            st.warning("위치 정보가 없거나 좌표 컬럼이 유효하지 않아 지도를 표시할 수 없습니다.")
 
         st.markdown("---")
         # --- 📢 [NEW] Map Visualization Section End ---
