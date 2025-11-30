@@ -991,6 +991,17 @@ with tab2:
     if not st.session_state.all_receipts_items:
         st.warning("Please analyze at least one receipt or load a CSV in the 'Analysis & Tracking' tab before starting a consultation.")
     else:
+        # --- 🌟 Chat History Reset Logic (Fix 2) 🌟 ---
+        # 현재 영수증 기록을 기반으로 해시 생성
+        # all_receipts_summary의 'id' 목록으로 데이터 변경 여부를 감지합니다.
+        current_data_hash = hash(tuple(item['id'] for item in st.session_state.all_receipts_summary))
+        
+        # 데이터가 변경되었는지 확인
+        if 'last_data_hash' not in st.session_state or st.session_state.last_data_hash != current_data_hash:
+            # 데이터가 변경된 경우, 채팅 기록과 해시를 리셋합니다.
+            st.session_state.chat_history = []
+            st.session_state.last_data_hash = current_data_hash
+            st.info("📊 새로운 지출 내역이 감지되었습니다. 신선한 분석을 위해 채팅 기록이 초기화됩니다.")
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
         # Defensive check for KRW Total Spend column
