@@ -304,15 +304,16 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     1. store_name: Store Name (text)
     2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
     3. store_location: Store location/address (text). **If not found, use "Seoul".**
-    4. total_amount: Total Amount Paid (numbers only, no commas)
+    4. total_amount: Total Amount Paid (numbers only, no commas). **This is the final amount paid after all discounts and before tax/tip.**
     5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
     6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    7. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
-    8. items: List of purchased items. Each item must include:
+    7. discount_amount: Total discount amount applied to the entire receipt (numbers only, no commas). **Must be 0 if not present.** ⬅️ **[수정]**
+    8. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
+    9. items: List of purchased items. Each item must include:
         - name: Item Name (text)
-        - price: Unit Price (numbers only, no commas)
+        - price: Unit Price (numbers only, no commas). **This must be the original, pre-discount price.** ⬅️ **[수정]**
         - quantity: Quantity (numbers only)
-        - category: The most appropriate **Sub-Category** for this item, which must be **automatically classified** by you.
+        - category: The most appropriate **Detailed Sub-Category** for this item, which must be **automatically classified** by you.
     
     **Classification Guide (Choose ONE sub-category for 'category' field):**
     - **FIXED / ESSENTIAL:** Rent & Mortgage, Communication Fees, Public Utilities, Public Transit, Fuel & Vehicle Maint., Parking & Tolls
@@ -330,6 +331,7 @@ def analyze_receipt_with_gemini(_image: Image.Image):
       "total_amount": ...,
       "tax_amount": ...,
       "tip_amount": ...,
+      "discount_amount": ...,
       "currency_unit": "...",  
       "items": [
         {"name": "...", "price": ..., "quantity": ..., "category": "..."}
@@ -549,6 +551,7 @@ with tab1:
                             total_amount = safe_get_amount(receipt_data, 'total_amount')
                             tax_amount = safe_get_amount(receipt_data, 'tax_amount')
                             tip_amount = safe_get_amount(receipt_data, 'tip_amount')
+                            discount_amount = safe_get_amount(receipt_data, 'discount_amount') # ⬅️ **[추가: 할인액 추출]**
                             
                             currency_unit = receipt_data.get('currency_unit', '').strip()
                             display_unit = currency_unit if currency_unit else 'KRW'
@@ -576,6 +579,11 @@ with tab1:
                             st.markdown(f"**📍 Location:** {final_location}") 
                             st.markdown(f"**📅 Date:** {final_date}") 
                             st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
+
+                            if discount_amount > 0:
+                                discount_display = f"{discount_amount:,.2f} {display_unit}"
+                                st.markdown(f"**🎁 Total Discount:** {discount_display}") # ⬅️ **[추가: 할인액 표시]**
+
                             
                             # 💡 세금/팁 정보 표시
                             if tax_amount > 0 or tip_amount > 0:
@@ -597,12 +605,31 @@ with tab1:
                                 items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
                                 items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
                                 items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
-                                items_df['Total Spend'] = items_df['Unit Price'] * items_df['Quantity']
+                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity'] # ⬅️ **[수정: 원가 총합 계산]**
+                                
+                                # 📢 할인 안분(Allocation) 로직 시작!
+                                total_item_original = items_df['Total Spend Original'].sum()
+                                
+                                if discount_amount > 0 and total_item_original > 0:
+                                    # 할인 비율 계산: 품목 원가 총합 대비 할인액 비율
+                                    discount_rate = discount_amount / total_item_original
+                                    
+                                    # 품목별 할인액 계산 및 실제 지출액 (Total Spend) 계산
+                                    items_df['Discount Applied'] = items_df['Total Spend Original'] * discount_rate
+                                    items_df['Total Spend'] = items_df['Total Spend Original'] - items_df['Discount Applied']
+                                    st.info(f"💡 Discount of {discount_amount:,.0f} {display_unit} successfully allocated across items.")
+                                else:
+                                    # 할인이 없거나 계산 불가능하면 원가 그대로 사용
+                                    items_df['Discount Applied'] = 0.0
+                                    items_df['Total Spend'] = items_df['Total Spend Original']
+                                    
+                                # 📢 할인 안분 로직 종료. Total Spend는 이제 할인이 반영된 금액입니다.
                                 
                                 st.subheader("🛒 Detailed Item Breakdown (Category Editable)")
                                 
+                                # 데이터 에디터에 할인 전 금액, 할인액, 최종 지출 금액을 보여줍니다.
                                 edited_df = st.data_editor(
-                                    items_df,
+                                    items_df.drop(columns=['Total Spend Original', 'Discount Applied', 'Total Spend']), # 임시로 제외
                                     column_config={
                                         "AI Category": st.column_config.SelectboxColumn(
                                             "Final Category",
@@ -610,12 +637,20 @@ with tab1:
                                             width="medium",
                                             options=ALL_CATEGORIES,
                                             required=True,
-                                        )
+                                        ),
+                                        # 💡 사용자가 직접 Total Spend를 수정하는 것을 막기 위해 disabled 처리 유지
                                     },
-                                    disabled=['Item Name', 'Unit Price', 'Quantity', 'Total Spend'],
+                                    # Total Spend는 이제 할인이 반영된 값이므로 disabled에서 해제할 필요는 없습니다.
+                                    disabled=['Item Name', 'Unit Price', 'Quantity'], 
                                     hide_index=True,
                                     use_container_width=True
                                 )
+                                
+                                # 📢 할인 안분 로직을 통과한 'Total Spend' 컬럼을 다시 edited_df에 합칩니다.
+                                # edited_df는 st.data_editor의 결과이므로, items_df에서 필요한 컬럼을 복사합니다.
+                                edited_df['Total Spend'] = items_df['Total Spend']
+                                edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
+                                edited_df['Currency'] = display_unit
                                 
                                 # 📢 Currency Conversion for Accumulation (AI Analysis)
                                 edited_df['Currency'] = display_unit
