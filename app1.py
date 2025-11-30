@@ -563,62 +563,82 @@ with tab1:
                             # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
                             final_location = store_location_str if store_location_str else "Seoul"
 
-                            # --- Main Information Display ---
-                            st.success("✅ Analysis Complete! Check the ledger data below.")
                             
-                            st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
-                            st.markdown(f"**📍 Location:** {final_location}") 
-                            st.markdown(f"**📅 Date:** {final_date}") 
-                            st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
-
-                            if discount_amount > 0:
-                                discount_display = f"{discount_amount:,.2f} {display_unit}"
-                                st.markdown(f"**🎁 Total Discount:** {discount_display}") # ⬅️ **[추가: 할인액 표시]**
-
-                            
-                            # 💡 세금/팁 정보 표시
-                            if tax_amount > 0 or tip_amount > 0:
-                                tax_display = f"{tax_amount:,.2f} {display_unit}"
-                                tip_display = f"{tip_amount:,.2f} {display_unit}"
-                                st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
-                            
-                            # 💡 Display Applied Exchange Rate for AI Analysis
-                            if display_unit != 'KRW':
-                                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
-                                st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
-                                
-                            st.markdown("---")
-
-
+                            # --- 📢 [NEW] 금액 검증 및 덮어쓰기 로직 시작 (OVRRIDE) ---
+                            # 1. 아이템 데이터프레임 생성 및 기본 계산
                             if 'items' in receipt_data and receipt_data['items']:
                                 items_df = pd.DataFrame(receipt_data['items'])
                                 
                                 items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
                                 items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
                                 items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
-                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
                                 
+                                # 2. 아이템 원가 총합 (할인 적용 전, Tax 포함) 계산
+                                calculated_original_total = (items_df['Unit Price'] * items_df['Quantity']).sum()
+                                total_discount = safe_get_amount(receipt_data, 'discount_amount') 
+                                
+                                # 3. 아이템 합계를 기반으로 최종 지불액 재계산 (이론적 합계)
+                                calculated_final_total = calculated_original_total - total_discount
+                                
+                                # 4. AI가 추출한 total_amount와 비교하여 덮어쓰기
+                                # 오차 허용 범위: 100원
+                                if abs(calculated_final_total - total_amount) > 100 and calculated_final_total > 0:
+                                    st.warning(
+                                        f"⚠️ AI 추출 총액({total_amount:,.0f} {display_unit})이 아이템 합계({calculated_final_total:,.0f} {display_unit})와 크게 다릅니다. "
+                                        f"**아이템 합계로 총액을 교정합니다.**"
+                                    )
+                                    # AI가 잘못 읽은 total_amount를 아이템 합계로 덮어씁니다.
+                                    total_amount = calculated_final_total
+                                
+                                # --- 📢 [NEW] 금액 검증 및 덮어쓰기 로직 종료 ---
+                            
+                                
+                                # --- Main Information Display ---
+                                st.success("✅ Analysis Complete! Check the ledger data below.")
+                                
+                                st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
+                                st.markdown(f"**📍 Location:** {final_location}") 
+                                st.markdown(f"**📅 Date:** {final_date}") 
+                                # 교정된 total_amount를 표시합니다.
+                                st.subheader(f"💰 Total Amount Paid (Corrected): {total_amount:,.0f} {display_unit}")
+
+                                if discount_amount > 0:
+                                    discount_display = f"{discount_amount:,.2f} {display_unit}"
+                                    st.markdown(f"**🎁 Total Discount:** {discount_display}") 
+
+                                
+                                # 💡 세금/팁 정보 표시
+                                if tax_amount > 0 or tip_amount > 0:
+                                    tax_display = f"{tax_amount:,.2f} {display_unit}"
+                                    tip_display = f"{tip_amount:,.2f} {display_unit}"
+                                    st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
+                                
+                                # 💡 Display Applied Exchange Rate for AI Analysis
+                                if display_unit != 'KRW':
+                                    applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
+                                    st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
+                                    
+                                st.markdown("---")
+
                                 # 📢 할인 안분(Allocation) 로직 시작! - 로직 안정화 (Robust Initialization)
-                                
-                                # 🌟 1단계: 모든 품목에 대해 할인액 0, 최종 지출액을 원가로 초기 설정
-                                # 이렇게 하면 discount_amount가 0일 때도 Total Spend 컬럼이 안전하게 정의됩니다.
+                                # items_df는 이제 `calculated_original_total`이 계산된 상태입니다.
+                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
                                 items_df['Discount Applied'] = 0.0
                                 items_df['Total Spend'] = items_df['Total Spend Original']
                                 
                                 total_item_original = items_df['Total Spend Original'].sum()
                                 
                                 # 🌟 2단계: 할인이 있을 경우에만 재계산
-                                # discount_amount는 이제 양수로 추출된다고 가정합니다.
-                                if discount_amount > 0 and total_item_original > 0:
+                                # total_discount는 AI가 추출한 양수 값입니다.
+                                if total_discount > 0 and total_item_original > 0:
                                     # 할인 비율 계산: 품목 원가 총합 대비 할인액 비율
-                                    discount_rate = discount_amount / total_item_original
+                                    discount_rate = total_discount / total_item_original
                                     
                                     # 품목별 할인액 계산 및 실제 지출액 (Total Spend)으로 업데이트
                                     items_df['Discount Applied'] = items_df['Total Spend Original'] * discount_rate
                                     items_df['Total Spend'] = items_df['Total Spend Original'] - items_df['Discount Applied']
-                                    st.info(f"💡 Discount of {discount_amount:,.0f} {display_unit} successfully allocated across items.")
+                                    st.info(f"💡 Discount of {total_discount:,.0f} {display_unit} successfully allocated across items.")
                                 else:
-                                    # 할인이 없거나 계산이 불가능한 경우, 초기화된 값 (Total Spend = Total Spend Original)을 그대로 사용
                                     pass
                                     
                                 # 📢 할인 안분 로직 종료. Total Spend는 이제 할인이 반영된 금액입니다.
@@ -636,16 +656,13 @@ with tab1:
                                             options=ALL_CATEGORIES,
                                             required=True,
                                         ),
-                                        # 💡 사용자가 직접 Total Spend를 수정하는 것을 막기 위해 disabled 처리 유지
                                     },
-                                    # Total Spend는 이제 할인이 반영된 값이므로 disabled에서 해제할 필요는 없습니다.
                                     disabled=['Item Name', 'Unit Price', 'Quantity'], 
                                     hide_index=True,
                                     use_container_width=True
                                 )
                                 
                                 # 📢 할인 안분 로직을 통과한 'Total Spend' 컬럼을 다시 edited_df에 합칩니다.
-                                # edited_df는 st.data_editor의 결과이므로, items_df에서 필요한 컬럼을 복사합니다.
                                 edited_df['Total Spend'] = items_df['Total Spend']
                                 edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
                                 edited_df['Currency'] = display_unit
@@ -678,7 +695,7 @@ with tab1:
                                     'Currency': 'KRW', 
                                     'Date': final_date, 
                                     'Location': final_location, 
-                                    'Original_Total': total_amount, 
+                                    'Original_Total': total_amount, # 교정된 total_amount 사용
                                     'Original_Currency': display_unit 
                                 })
 
@@ -935,8 +952,6 @@ with tab1:
                 st.plotly_chart(fig_trend, use_container_width=True)
             else:
                 st.warning("Date data is not available or not properly formatted to show the trend chart.")
-        
-        # 3. Generate AI Analysis Report <-- 이 섹션은 제거되었습니다.
         
         # 4. Reset and Download Buttons
         st.markdown("---")
