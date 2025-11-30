@@ -304,14 +304,14 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     1. store_name: Store Name (text)
     2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
     3. store_location: Store location/address (text). **If not found, use "Seoul".**
-    4. total_amount: Final amount settled/paid via card or cash (numbers only, no commas). **This is the final amount paid after all discounts and before tax/tip.**
-    5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). **Must be 0 if not present.**
-    7. discount_amount: Total discount amount applied to the entire receipt (numbers only, no commas). **Must be 0 if not present.** ⬅️ **[수정]**
+    4. total_amount: Final amount settled/paid via card or cash (numbers only, no commas). **Must match the '합계' (Total) or final payment amount (e.g., 19,400).** 
+    5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). Must be 0 if not present.
+    6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). Must be 0 if not present.
+    7. discount_amount: Total discount amount applied to the entire receipt (numbers only, no commas). Must be 0 if not present.
     8. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
     9. items: List of purchased items. Each item must include:
         - name: Item Name (text)
-        - price: Unit Price (numbers only, no commas). **This must be the original, pre-discount price.** ⬅️ **[수정]**
+        - price: Unit Price (numbers only, no commas). **This must be the final, VAT-INCLUSIVE price displayed next to the item name.** 
         - quantity: Quantity (numbers only)
         - category: The most appropriate **Detailed Sub-Category** for this item, which must be **automatically classified** by you.
     
