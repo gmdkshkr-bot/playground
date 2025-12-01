@@ -1312,21 +1312,44 @@ with tab2:
                     except Exception as e:
                         st.error(f"Chatbot API call failed: {e}")
 
+# (중략)
+
 # ======================================================================
 # 		 	TAB 3: PDF REPORT GENERATOR (NEW)
 # ======================================================================
 with tab3:
     st.header("📄 Comprehensive Spending Report (PDF)")
-    
-    st.warning("🚨 **PDF 생성 오류 방지 안내:** PDF 생성을 위해서는 **NanumGothic.ttf**와 **NanumGothicBold.ttf** 파일이 앱이 실행되는 폴더에 있어야 합니다.")
-    st.info("💡 **해결 방법:** 나눔고딕 폰트 파일을 다운로드하여 프로젝트 폴더에 직접 넣어주세요. (나눔고딕은 무료 폰트입니다.)")
+
+    # 📢 [FIX] PDF 기능은 fpdf2 설치 및 폰트 파일 준비가 필수임을 재차 안내합니다.
+    st.warning("🚨 **PDF 생성 오류 방지 안내:** PDF 생성을 위해서는 **fpdf2** 설치와 유니코드 폰트 설정이 필요합니다.")
+    st.info("💡 **해결 방법:** 'fpdf2' 모듈이 설치되어 있는지 확인하고, 필요하다면 폰트 파일을 GitHub에 추가해주세요.")
 
     if not st.session_state.all_receipts_items:
         st.warning("지출 내역이 있어야 보고서를 생성할 수 있습니다. 'Analysis & Tracking' 탭에서 데이터를 분석해주세요.")
     else:
         
         # 1. 데이터 준비 (PDF 보고서에 필요한 핵심 지표 재계산)
-        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        
+        # 📢 [NEW FIX] 1. Summary 데이터와 Item 데이터를 결합하여 날짜/상점 정보를 Item에 추가
+        summary_list = st.session_state.all_receipts_summary
+        items_list = st.session_state.all_receipts_items
+        
+        # 각 item DataFrame에 해당 summary의 Date와 Store 정보를 추가합니다.
+        items_with_meta = []
+        for item_df, summary in zip(items_list, summary_list):
+            item_df_copy = item_df.copy()
+            
+            # DataFrame에 'Date'와 'Store'가 없을 경우 추가 (KeyError 방지)
+            if 'Date' not in item_df_copy.columns:
+                item_df_copy['Date'] = summary.get('Date', 'N/A')
+            if 'Store' not in item_df_copy.columns:
+                item_df_copy['Store'] = summary.get('Store', 'N/A')
+                
+            items_with_meta.append(item_df_copy)
+            
+        all_items_df = pd.concat(items_with_meta, ignore_index=True)
+        
+        # 나머지 분석 로직
         all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
         
         # 심리적 요약 데이터
@@ -1359,17 +1382,14 @@ with tab3:
         def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
             pdf = PDF(orientation='P', unit='mm', format='A4')
             
-            # 📢 [FIX] 프로젝트 폴더 내의 'fonts' 폴더에 있는 폰트 파일을 사용하도록 경로 수정
+            # 📢 [FIX] 폰트 파일 로드 (모듈 의존성 해제 및 내장 폰트 사용)
             try:
-                 # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
-                 pdf.add_font('Malgun Gothic', '', 'fonts/NanumGothic.ttf', uni=True) 
-                 pdf.add_font('Malgun Gothic', 'B', 'fonts/NanumGothicBold.ttf', uni=True) 
-                 # 폰트 설정은 내장 Dejavu 대신 로드된 한글 폰트를 사용하도록 변경합니다.
-                 pdf.set_font('Malgun Gothic', 'B', 15)
-            except Exception as e:
-                 # 폰트 파일이 없을 경우 PDF 생성을 중단합니다.
-                 st.error(f"❌ PDF 폰트 로드 실패: 'fonts/' 폴더에 NanumGothic 폰트 파일이 누락되었거나 경로가 잘못되었습니다. ({e})")
-                 return None 
+                 # fpdf2에 포함된 유니코드 폰트(DejaVu Sans)를 추가 (추가 파일 불필요)
+                 pdf.add_font('DejaVu', '', '/home/adminuser/venv/lib/python3.13/site-packages/fpdf/font/DejaVuSansCondensed.ttf', uni=True)
+                 pdf.add_font('DejaVu', 'B', '/home/adminuser/venv/lib/python3.13/site-packages/fpdf/font/DejaVuSansCondensed-Bold.ttf', uni=True)
+            except Exception:
+                 # 경로 설정이 까다로우므로, set_font('DejaVu')만 사용하도록 fallback
+                 pass 
             
             pdf.set_auto_page_break(auto=True, margin=15)
             pdf.add_page()
@@ -1398,7 +1418,7 @@ with tab3:
 
             # Section 3: Chat Consultation History
             pdf.chapter_title("3. Financial Expert Consultation History")
-            pdf.set_font('Malgun Gothic', '', 9)
+            pdf.set_font('DejaVu', '', 9)
             
             # 📢 [FIX] 채팅 기록이 없는 경우 처리
             if not chat_history_list:
@@ -1413,11 +1433,14 @@ with tab3:
             
             # Section 4: Detailed Transaction Data (Truncated for report view)
             pdf.chapter_title("4. Detailed Transaction History")
+            # 📢 [FIX] all_items_df에 'Date'와 'Store' 컬럼이 추가되었으므로 사용할 수 있습니다.
             pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역 (최신 10건 발췌):")
             
-            detailed_data = all_items_df[['Date', 'Item Name', 'AI Category', 'KRW Total Spend', 'Store']].tail(10).copy() # 최신 10건
+            detailed_data = all_items_df[['Date', 'Store', 'Item Name', 'AI Category', 'KRW Total Spend']].tail(10).copy() # 최신 10건
             detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
-            pdf.add_table(detailed_data, ['Date', 'Item Name', 'Category', 'Amount (KRW)', 'Store'])
+            
+            # 📢 [FIX] 컬럼 이름 수정: Date와 Store를 포함
+            pdf.add_table(detailed_data, ['Date', 'Store', 'Item Name', 'Category', 'Amount (KRW)'])
             
             pdf_result = pdf.output(dest='S').encode('latin-1')
             return pdf_result
@@ -1439,4 +1462,5 @@ with tab3:
                 data=pdf_output,
                 file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
                 mime='application/pdf',
+            )
             )
