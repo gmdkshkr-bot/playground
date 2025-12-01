@@ -10,7 +10,7 @@ import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 import time 
-from fpdf import FPDF # 📢 [NEW] PDF 라이브러리 임포트
+from fpdf import FPDF # 📢 [NEW] PDF 라이브러리 임포트 (fpdf2 설치 필요)
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
@@ -452,6 +452,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 # 📢 [NEW] PDF 생성 클래스 (fpdf2 기반)
 class PDF(FPDF):
     def header(self):
+        # 📢 [FIX] 폰트 설정: PDF 생성 시 폰트 문제로 오류가 발생하지 않도록 기본 폰트 설정
         self.set_font('Malgun Gothic', 'B', 15)
         self.cell(0, 10, 'Personal Spending Analysis Report', 0, 1, 'C')
         self.ln(10)
@@ -474,19 +475,26 @@ class PDF(FPDF):
 
     def add_table(self, data: pd.DataFrame, header_titles: list):
         self.set_font('Malgun Gothic', 'B', 8)
-        col_widths = [40, 30, 20, 30, 40] # 예시 너비
+        
+        # 📢 [FIX] 테이블 너비 자동 계산 (PDF 너비 190mm 기준)
+        num_cols = len(header_titles)
+        col_width = 190 / num_cols
         
         # Header
         for i, title in enumerate(header_titles):
-            self.cell(col_widths[i], 7, title, 1, 0, 'C')
+            self.cell(col_width, 7, title, 1, 0, 'C')
         self.ln()
 
         # Data rows
         self.set_font('Malgun Gothic', '', 8)
         for _, row in data.iterrows():
             row_list = [str(item) for item in row.iloc[:len(header_titles)]]
+            
+            # 셀 내용이 너무 길어지지 않도록 조정 (테이블 레이아웃 유지)
+            row_list = [item[:25] if len(item) > 25 else item for item in row_list]
+            
             for i, item in enumerate(row_list):
-                self.cell(col_widths[i], 6, item, 1, 0, 'C')
+                self.cell(col_width, 6, item, 1, 0, 'C')
             self.ln()
 
 
@@ -1336,10 +1344,12 @@ with tab3:
             impulse_index = 0.0
 
         # 최고 충동 카테고리 (Tab 2에서 계산된 값 재사용)
-        highest_impulse_category = ""
+        highest_impulse_category = "N/A"
         impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
         if not impulse_items_df.empty:
-            highest_impulse_category = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum().idxmax()
+            highest_impulse_category_calc = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
+            if not highest_impulse_category_calc.empty:
+                highest_impulse_category = highest_impulse_category_calc.idxmax()
         
         
         # 2. PDF 생성 함수 정의 (버튼 클릭 시 실행)
@@ -1347,11 +1357,12 @@ with tab3:
             pdf = PDF(orientation='P', unit='mm', format='A4')
             
             # 📢 한글 폰트 설정 (Malgun Gothic이 시스템에 설치되어 있어야 함)
+            # Streamlit Cloud 환경에서는 NanumGothic을 사용하도록 대체 경로 설정
             try:
                 pdf.add_font('Malgun Gothic', '', 'MalgunGothic.ttf', uni=True) 
                 pdf.add_font('Malgun Gothic', 'B', 'MalgunGothicBold.ttf', uni=True) 
             except Exception:
-                 # 로컬 환경에 폰트가 없는 경우를 대비한 대체
+                 # 로컬 환경에 폰트가 없는 경우를 대비한 대체 (Streamlit Cloud에서 자주 사용되는 폰트 경로)
                  pdf.add_font('Malgun Gothic', '', '/usr/share/fonts/truetype/nanum/NanumGothic.ttf', uni=True) 
                  pdf.add_font('Malgun Gothic', 'B', '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf', uni=True) 
             
@@ -1384,17 +1395,22 @@ with tab3:
             pdf.chapter_title("3. Financial Expert Consultation History")
             pdf.set_font('Malgun Gothic', '', 9)
             
-            for chat in chat_history_list:
-                role = "Advisor" if chat['role'] == 'assistant' else "You"
-                text = chat['content'].replace('\n', ' ')
-                pdf.multi_cell(0, 4, f"{role}: {text}", border=0)
-                pdf.ln(1)
+            # 📢 [FIX] 채팅 기록이 없는 경우 처리
+            if not chat_history_list:
+                pdf.chapter_body("상담 내역이 없습니다. 'Financial Expert Chat' 탭에서 전문가와 대화를 시작해보세요.")
+            else:
+                for chat in chat_history_list:
+                    role = "Advisor" if chat['role'] == 'assistant' else "You"
+                    # 줄바꿈 문자를 공백으로 치환하여 PDF 레이아웃 유지
+                    text = chat['content'].replace('\n', ' ').replace('\r', ' ')
+                    pdf.multi_cell(0, 4, f"{role}: {text}", border=0)
+                    pdf.ln(1)
             
             # Section 4: Detailed Transaction Data (Truncated for report view)
             pdf.chapter_title("4. Detailed Transaction History")
-            pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역 (일부 발췌):")
+            pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역 (최신 10건 발췌):")
             
-            detailed_data = all_items_df[['Date', 'Item Name', 'AI Category', 'KRW Total Spend', 'Store']].head(10)
+            detailed_data = all_items_df[['Date', 'Item Name', 'AI Category', 'KRW Total Spend', 'Store']].tail(10).copy() # 최신 10건
             detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
             pdf.add_table(detailed_data, ['Date', 'Item Name', 'Category', 'Amount (KRW)', 'Store'])
             
@@ -1403,7 +1419,7 @@ with tab3:
 
         # 3. Streamlit Download Button
         pdf_output = create_pdf_report(
-            psycho_summary_pdf, 
+            psychological_summary_pdf, 
             total_spent, 
             impulse_index, 
             highest_impulse_category, 
@@ -1417,4 +1433,4 @@ with tab3:
             mime='application/pdf',
         )
 
-        st.info("💡 **참고:** PDF 생성을 위해 'Malgun Gothic' 폰트가 사용됩니다. 폰트 오류 시 Streamlit 환경을 확인해주세요.")
+        st.info("💡 **참고:** PDF 생성을 위해 **`fpdf2`** 라이브러리가 필요합니다. 이 오류가 계속 발생하면, 앱 환경에서 `pip install fpdf2` 명령어를 실행해주세요.")
