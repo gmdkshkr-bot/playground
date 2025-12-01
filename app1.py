@@ -19,7 +19,7 @@ from fpdf import FPDF # 📢 PDF 라이브러리 임포트 (fpdf2 설치 필요)
 try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    EXCHANGE_RATE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
     # 📢 [NEW] 카카오 API 키 로드
     KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
@@ -1114,6 +1114,8 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No spending data found to generate the pie chart.")
+
+        # --- Spending Trend Over Time Chart (KRW based) ---
         
         # 4. Reset and Download Buttons
         st.markdown("---")
@@ -1257,14 +1259,14 @@ with tab2:
                   impulse_info = "아직 충동성 지출 항목이 명확하게 분석되지 않았습니다."
 
               initial_message = f"""
-              안녕하세요! 저는 귀하의 소비를 분석해주는 AI 금융과 심리 전문가입니다. 🧠
+              안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
               현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
-              귀하의 **소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
+              귀하의 **정교한 소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
               {impulse_info}
 
-              어떤 부분에 대해 더 자세한 금융적, 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+              어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
 
-              * **"제 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
+              * **"제 정교한 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
               * **"제일 많이 쓰는 충동성 항목({highest_impulse_category} 등)의 비용을 줄일 대안을 추천해주세요."**
               * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
               """
@@ -1376,7 +1378,6 @@ with tab3:
             # 폰트 로딩 실패 시 바로 None을 반환하도록 로직 변경
             try:
                  # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
-                 # 🚨 폰트 이름 통일: NanumGothic 대신 'Nanum' 사용
                  pdf.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
                  pdf.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
                  pdf.set_font('Nanum', '', 10) # 기본 폰트 설정
@@ -1426,12 +1427,14 @@ with tab3:
                     pdf.multi_cell(0, 4, f"{role}: {text}", border=0)
                     pdf.ln(1)
             
-            # Section 4: Detailed Transaction Data (Truncated for report view)
+            # Section 4: Detailed Transaction Data (ALL ITEMS)
             pdf.chapter_title("4. Detailed Transaction History")
             # 📢 [FIX] all_items_df에 'Date'와 'Store' 컬럼이 추가되었으므로 사용할 수 있습니다.
-            pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역 (최신 10건 발췌):")
+            # 📢 [FIX] .tail(10) 제거하여 모든 항목 표시
+            pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역:")
             
-            detailed_data = all_items_df[['Date', 'Store', 'Item Name', 'AI Category', 'KRW Total Spend']].tail(10).copy() # 최신 10건
+            # 📢 .tail(10) 제거하여 전체 항목 사용
+            detailed_data = all_items_df[['Date', 'Store', 'Item Name', 'AI Category', 'KRW Total Spend']].copy() 
             detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
             
             # 📢 [FIX] 컬럼 이름 수정: Date와 Store를 포함
