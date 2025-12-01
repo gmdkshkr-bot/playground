@@ -459,7 +459,7 @@ class PDF(FPDF):
 
     def footer(self):
         self.set_y(-15)
-        self.set_font('Nanum', 'I', 8)
+        self.set_font('Nanum', '', 8) # 📢 [FIX] 이탤릭('I') 제거
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
     def chapter_title(self, title):
@@ -1383,6 +1383,7 @@ with tab3:
                  pdf.set_font('Nanum', '', 10) # 기본 폰트 설정
             except Exception as e:
                  # 폰트 로드 실패 시 None 반환 및 사용자에게 오류 표시
+                 # 🚨 이 예외가 발생했을 때 header/footer/add_table에서 Nanum 폰트 사용 시도 막기
                  st.error(f"❌ PDF 폰트 로드 실패: 'fonts/' 폴더에 NanumGothic 폰트 파일이 누락되었거나 경로가 잘못되었습니다.")
                  st.exception(e)
                  return None 
