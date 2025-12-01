@@ -141,7 +141,7 @@ def get_exchange_rates():
     Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
     # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
@@ -1317,6 +1317,9 @@ with tab2:
 # ======================================================================
 with tab3:
     st.header("📄 Comprehensive Spending Report (PDF)")
+    
+    st.warning("🚨 **PDF 생성 오류 방지 안내:** PDF 생성을 위해서는 **NanumGothic.ttf**와 **NanumGothicBold.ttf** 파일이 앱이 실행되는 폴더에 있어야 합니다.")
+    st.info("💡 **해결 방법:** 나눔고딕 폰트 파일을 다운로드하여 프로젝트 폴더에 직접 넣어주세요. (나눔고딕은 무료 폰트입니다.)")
 
     if not st.session_state.all_receipts_items:
         st.warning("지출 내역이 있어야 보고서를 생성할 수 있습니다. 'Analysis & Tracking' 탭에서 데이터를 분석해주세요.")
@@ -1356,15 +1359,14 @@ with tab3:
         def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
             pdf = PDF(orientation='P', unit='mm', format='A4')
             
-            # 📢 한글 폰트 설정 (Malgun Gothic이 시스템에 설치되어 있어야 함)
-            # Streamlit Cloud 환경에서는 NanumGothic을 사용하도록 대체 경로 설정
+            # 📢 [FIX] 폰트 파일 로드 (프로젝트 폴더 내 NanumGothic.ttf를 사용하도록 수정)
             try:
-                pdf.add_font('Malgun Gothic', '', 'MalgunGothic.ttf', uni=True) 
-                pdf.add_font('Malgun Gothic', 'B', 'MalgunGothicBold.ttf', uni=True) 
-            except Exception:
-                 # 로컬 환경에 폰트가 없는 경우를 대비한 대체 (Streamlit Cloud에서 자주 사용되는 폰트 경로)
-                 pdf.add_font('Malgun Gothic', '', '/usr/share/fonts/truetype/nanum/NanumGothic.ttf', uni=True) 
-                 pdf.add_font('Malgun Gothic', 'B', '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf', uni=True) 
+                 pdf.add_font('Malgun Gothic', '', 'NanumGothic.ttf', uni=True) 
+                 pdf.add_font('Malgun Gothic', 'B', 'NanumGothicBold.ttf', uni=True) 
+            except Exception as e:
+                 # 폰트 파일이 없을 경우 PDF 생성이 중단됩니다.
+                 st.error("❌ PDF 폰트 로드 실패: NanumGothic.ttf 또는 NanumGothicBold.ttf 파일을 앱 폴더에 넣어주세요.")
+                 return None 
             
             pdf.set_auto_page_break(auto=True, margin=15)
             pdf.add_page()
@@ -1414,7 +1416,8 @@ with tab3:
             detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
             pdf.add_table(detailed_data, ['Date', 'Item Name', 'Category', 'Amount (KRW)', 'Store'])
             
-            return pdf.output(dest='S').encode('latin-1')
+            pdf_result = pdf.output(dest='S').encode('latin-1')
+            return pdf_result
 
 
         # 3. Streamlit Download Button
@@ -1426,11 +1429,11 @@ with tab3:
             st.session_state.chat_history
         )
         
-        st.download_button(
-            label="⬇️ Download PDF Report",
-            data=pdf_output,
-            file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
-            mime='application/pdf',
-        )
-
-        st.info("💡 **참고:** PDF 생성을 위해 **`fpdf2`** 라이브러리가 필요합니다. 이 오류가 계속 발생하면, 앱 환경에서 `pip install fpdf2` 명령어를 실행해주세요.")
+        # 폰트 로드 실패 시 create_pdf_report는 None을 반환합니다.
+        if pdf_output:
+            st.download_button(
+                label="⬇️ Download PDF Report",
+                data=pdf_output,
+                file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
+                mime='application/pdf',
+            )
