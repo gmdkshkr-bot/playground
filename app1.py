@@ -1359,13 +1359,16 @@ with tab3:
         def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
             pdf = PDF(orientation='P', unit='mm', format='A4')
             
-            # 📢 [FIX] 폰트 파일 로드 (프로젝트 폴더 내 NanumGothic.ttf를 사용하도록 수정)
+            # 📢 [FIX] 프로젝트 폴더 내의 'fonts' 폴더에 있는 폰트 파일을 사용하도록 경로 수정
             try:
-                 pdf.add_font('Malgun Gothic', '', 'NanumGothic.ttf', uni=True) 
-                 pdf.add_font('Malgun Gothic', 'B', 'NanumGothicBold.ttf', uni=True) 
+                 # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
+                 pdf.add_font('Malgun Gothic', '', 'fonts/NanumGothic.ttf', uni=True) 
+                 pdf.add_font('Malgun Gothic', 'B', 'fonts/NanumGothicBold.ttf', uni=True) 
+                 # 폰트 설정은 내장 Dejavu 대신 로드된 한글 폰트를 사용하도록 변경합니다.
+                 pdf.set_font('Malgun Gothic', 'B', 15)
             except Exception as e:
-                 # 폰트 파일이 없을 경우 PDF 생성이 중단됩니다.
-                 st.error("❌ PDF 폰트 로드 실패: NanumGothic.ttf 또는 NanumGothicBold.ttf 파일을 앱 폴더에 넣어주세요.")
+                 # 폰트 파일이 없을 경우 PDF 생성을 중단합니다.
+                 st.error(f"❌ PDF 폰트 로드 실패: 'fonts/' 폴더에 NanumGothic 폰트 파일이 누락되었거나 경로가 잘못되었습니다. ({e})")
                  return None 
             
             pdf.set_auto_page_break(auto=True, margin=15)
