@@ -1439,7 +1439,7 @@ with tab3:
             pdf.add_table(detailed_data, ['Date', 'Store', 'Item Name', 'Category', 'Amount (KRW)'])
             
             # 📢 [FIX] output() 호출 시 .encode('latin-1') 제거
-            pdf_result = pdf.output(dest='S') 
+            pdf_result = bytes(pdf.output(dest='S'))
             return pdf_result
 
 
