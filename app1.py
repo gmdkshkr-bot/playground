@@ -10,7 +10,7 @@ import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 import time 
-from fpdf import FPDF # 📢 [NEW] PDF 라이브러리 임포트 (fpdf2 설치 필요)
+from fpdf import FPDF # 📢 PDF 라이브러리 임포트 (fpdf2 설치 필요)
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
@@ -141,7 +141,7 @@ def get_exchange_rates():
     Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
     # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
@@ -452,29 +452,29 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 # 📢 [NEW] PDF 생성 클래스 (fpdf2 기반)
 class PDF(FPDF):
     def header(self):
-        # 📢 [FIX] 폰트 설정: PDF 생성 시 폰트 문제로 오류가 발생하지 않도록 기본 폰트 설정
-        self.set_font('Malgun Gothic', 'B', 15)
+        # 📢 [FIX] Nanum Gothic으로 폰트 설정
+        self.set_font('Nanum', 'B', 15)
         self.cell(0, 10, 'Personal Spending Analysis Report', 0, 1, 'C')
         self.ln(10)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font('Malgun Gothic', 'I', 8)
+        self.set_font('Nanum', 'I', 8)
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
     def chapter_title(self, title):
-        self.set_font('Malgun Gothic', 'B', 12)
+        self.set_font('Nanum', 'B', 12)
         self.set_fill_color(220, 220, 220)
         self.cell(0, 6, title, 0, 1, 'L', 1)
         self.ln(4)
 
     def chapter_body(self, body):
-        self.set_font('Malgun Gothic', '', 10)
+        self.set_font('Nanum', '', 10)
         self.multi_cell(0, 5, body)
         self.ln()
 
     def add_table(self, data: pd.DataFrame, header_titles: list):
-        self.set_font('Malgun Gothic', 'B', 8)
+        self.set_font('Nanum', 'B', 8)
         
         # 📢 [FIX] 테이블 너비 자동 계산 (PDF 너비 190mm 기준)
         num_cols = len(header_titles)
@@ -486,7 +486,7 @@ class PDF(FPDF):
         self.ln()
 
         # Data rows
-        self.set_font('Malgun Gothic', '', 8)
+        self.set_font('Nanum', '', 8)
         for _, row in data.iterrows():
             row_list = [str(item) for item in row.iloc[:len(header_titles)]]
             
@@ -1312,44 +1312,20 @@ with tab2:
                     except Exception as e:
                         st.error(f"Chatbot API call failed: {e}")
 
-# (중략)
-
 # ======================================================================
 # 		 	TAB 3: PDF REPORT GENERATOR (NEW)
 # ======================================================================
 with tab3:
     st.header("📄 Comprehensive Spending Report (PDF)")
 
-    # 📢 [FIX] PDF 기능은 fpdf2 설치 및 폰트 파일 준비가 필수임을 재차 안내합니다.
-    st.warning("🚨 **PDF 생성 오류 방지 안내:** PDF 생성을 위해서는 **fpdf2** 설치와 유니코드 폰트 설정이 필요합니다.")
-    st.info("💡 **해결 방법:** 'fpdf2' 모듈이 설치되어 있는지 확인하고, 필요하다면 폰트 파일을 GitHub에 추가해주세요.")
+    st.warning("🚨 **나눔고딕 폰트 필수:** PDF 생성을 위해서는 **나눔고딕** 폰트 파일(`NanumGothic.ttf`, `NanumGothicBold.ttf`)이 **프로젝트 폴더 내 `fonts/` 폴더에** 있어야 합니다.")
 
     if not st.session_state.all_receipts_items:
         st.warning("지출 내역이 있어야 보고서를 생성할 수 있습니다. 'Analysis & Tracking' 탭에서 데이터를 분석해주세요.")
     else:
         
         # 1. 데이터 준비 (PDF 보고서에 필요한 핵심 지표 재계산)
-        
-        # 📢 [NEW FIX] 1. Summary 데이터와 Item 데이터를 결합하여 날짜/상점 정보를 Item에 추가
-        summary_list = st.session_state.all_receipts_summary
-        items_list = st.session_state.all_receipts_items
-        
-        # 각 item DataFrame에 해당 summary의 Date와 Store 정보를 추가합니다.
-        items_with_meta = []
-        for item_df, summary in zip(items_list, summary_list):
-            item_df_copy = item_df.copy()
-            
-            # DataFrame에 'Date'와 'Store'가 없을 경우 추가 (KeyError 방지)
-            if 'Date' not in item_df_copy.columns:
-                item_df_copy['Date'] = summary.get('Date', 'N/A')
-            if 'Store' not in item_df_copy.columns:
-                item_df_copy['Store'] = summary.get('Store', 'N/A')
-                
-            items_with_meta.append(item_df_copy)
-            
-        all_items_df = pd.concat(items_with_meta, ignore_index=True)
-        
-        # 나머지 분석 로직
+        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
         
         # 심리적 요약 데이터
@@ -1382,7 +1358,7 @@ with tab3:
         def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
             pdf = PDF(orientation='P', unit='mm', format='A4')
             
-            # 📢 [FIX] 폰트 파일 로드 (모듈 의존성 해제 및 내장 폰트 사용)
+            # 📢 [NEW FIX] Nanum Gothic 폰트 로드 (fonts/ 폴더 사용)
             try:
                  # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
                  pdf.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
@@ -1421,7 +1397,7 @@ with tab3:
 
             # Section 3: Chat Consultation History
             pdf.chapter_title("3. Financial Expert Consultation History")
-            pdf.set_font('DejaVu', '', 9)
+            pdf.set_font('Nanum', '', 9)
             
             # 📢 [FIX] 채팅 기록이 없는 경우 처리
             if not chat_history_list:
@@ -1466,4 +1442,3 @@ with tab3:
                 file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
                 mime='application/pdf',
             )
-            
