@@ -10,6 +10,7 @@ import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
 import time 
+from fpdf import FPDF # 📢 [NEW] PDF 라이브러리 임포트
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
@@ -328,7 +329,7 @@ with st.sidebar:
     1. **Upload / Manual Input:** Enter spending data via receipt image or manual form.
     2. **Analyze & Accumulate:** Results are added to the cumulative record.
     3. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
-    4. **Export & Continue:** Export the current record in CSV, load the CSV to continue recording.
+    4. **Report Generation:** Generate a comprehensive PDF report based on analysis and chat history.
     """)
     
     st.markdown("---")
@@ -448,12 +449,52 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     except Exception as e:
         return "Failed to generate analysis report."
 
+# 📢 [NEW] PDF 생성 클래스 (fpdf2 기반)
+class PDF(FPDF):
+    def header(self):
+        self.set_font('Malgun Gothic', 'B', 15)
+        self.cell(0, 10, 'Personal Spending Analysis Report', 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Malgun Gothic', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    def chapter_title(self, title):
+        self.set_font('Malgun Gothic', 'B', 12)
+        self.set_fill_color(220, 220, 220)
+        self.cell(0, 6, title, 0, 1, 'L', 1)
+        self.ln(4)
+
+    def chapter_body(self, body):
+        self.set_font('Malgun Gothic', '', 10)
+        self.multi_cell(0, 5, body)
+        self.ln()
+
+    def add_table(self, data: pd.DataFrame, header_titles: list):
+        self.set_font('Malgun Gothic', 'B', 8)
+        col_widths = [40, 30, 20, 30, 40] # 예시 너비
+        
+        # Header
+        for i, title in enumerate(header_titles):
+            self.cell(col_widths[i], 7, title, 1, 0, 'C')
+        self.ln()
+
+        # Data rows
+        self.set_font('Malgun Gothic', '', 8)
+        for _, row in data.iterrows():
+            row_list = [str(item) for item in row.iloc[:len(header_titles)]]
+            for i, item in enumerate(row_list):
+                self.cell(col_widths[i], 6, item, 1, 0, 'C')
+            self.ln()
+
 
 # ----------------------------------------------------------------------
 # 📌 4. Streamlit UI: Tab Setup (Translated)
 # ----------------------------------------------------------------------
 
-tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
+tab1, tab2, tab3 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat", "📄 PDF Report"])
 
 
 # ======================================================================
@@ -1192,7 +1233,7 @@ with tab2:
         --- Alternative Recommendation Task (NEW - Utility Optimization) ---
         The user's highest impulse/loss spending is in the **'{highest_impulse_category}'** category, amounting to **{highest_impulse_amount:,.0f} KRW**.
         
-        When the user asks for alternatives or efficiency advice (e.g., "비용을 줄일 대안을 추천해주세요"), you MUST prioritize and perform the following:
+        When the user asks for alternatives or efficiency advice, you MUST prioritize and perform the following:
         1. Identify the core utility (e.g., comfort, energy, pleasure, time-saving, social belonging) the user gains from spending on **'{highest_impulse_category}'** or a specific high-frequency impulse item.
         2. Propose 2-3 specific, actionable, and low-cost alternatives that satisfy the *same core utility* while aiming to **reduce the expense by at least 30%**.
         3. Examples of alternatives: *Home-brewed coffee for routine, pre-planning walking route instead of taxi, frozen meal kit instead of dining out.*
@@ -1262,3 +1303,118 @@ with tab2:
                         
                     except Exception as e:
                         st.error(f"Chatbot API call failed: {e}")
+
+# ======================================================================
+# 		 	TAB 3: PDF REPORT GENERATOR (NEW)
+# ======================================================================
+with tab3:
+    st.header("📄 Comprehensive Spending Report (PDF)")
+
+    if not st.session_state.all_receipts_items:
+        st.warning("지출 내역이 있어야 보고서를 생성할 수 있습니다. 'Analysis & Tracking' 탭에서 데이터를 분석해주세요.")
+    else:
+        
+        # 1. 데이터 준비 (PDF 보고서에 필요한 핵심 지표 재계산)
+        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
+        
+        # 심리적 요약 데이터
+        psychological_summary_pdf = all_items_df.groupby('Psychological Category')['KRW Total Spend'].sum().reset_index()
+        psychological_summary_pdf.columns = ['Category', 'Amount (KRW)']
+        total_spent = psychological_summary_pdf['Amount (KRW)'].sum()
+        
+        # 충동 지수 (Tab 2에서 계산된 값 재사용)
+        impulse_spending = psychological_summary_pdf.loc[psychological_summary_pdf['Category'] == PSYCHOLOGICAL_CATEGORIES[2], 'Amount (KRW)'].sum()
+        total_transactions = len(all_items_df)
+        impulse_transactions = len(all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]])
+        
+        if total_spent > 0 and total_transactions > 0:
+            amount_ratio = impulse_spending / total_spent
+            frequency_ratio_factor = np.sqrt(impulse_transactions / total_transactions)
+            impulse_index = amount_ratio * frequency_ratio_factor
+        else:
+            impulse_index = 0.0
+
+        # 최고 충동 카테고리 (Tab 2에서 계산된 값 재사용)
+        highest_impulse_category = ""
+        impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
+        if not impulse_items_df.empty:
+            highest_impulse_category = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum().idxmax()
+        
+        
+        # 2. PDF 생성 함수 정의 (버튼 클릭 시 실행)
+        def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
+            pdf = PDF(orientation='P', unit='mm', format='A4')
+            
+            # 📢 한글 폰트 설정 (Malgun Gothic이 시스템에 설치되어 있어야 함)
+            try:
+                pdf.add_font('Malgun Gothic', '', 'MalgunGothic.ttf', uni=True) 
+                pdf.add_font('Malgun Gothic', 'B', 'MalgunGothicBold.ttf', uni=True) 
+            except Exception:
+                 # 로컬 환경에 폰트가 없는 경우를 대비한 대체
+                 pdf.add_font('Malgun Gothic', '', '/usr/share/fonts/truetype/nanum/NanumGothic.ttf', uni=True) 
+                 pdf.add_font('Malgun Gothic', 'B', '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf', uni=True) 
+            
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.add_page()
+            
+            # Section 1: Executive Summary
+            pdf.chapter_title("1. Executive Summary & Key Metrics")
+            
+            summary_body = (
+                f"총 누적 지출액: {total_spent:,.0f} KRW\n"
+                f"정교한 소비 충동성 지수 (Refined Impulse Index): {impulse_index:.2f} (목표: 0.15 이하)\n"
+                f"가장 높은 충동 지출 카테고리: {high_impulse_cat}\n\n"
+                f"이 보고서는 귀하의 지출 패턴을 심리적 관점에서 분석하고, 효율적인 재무 목표 달성을 위한 맞춤형 조언을 제공합니다."
+            )
+            pdf.chapter_body(summary_body)
+
+            # Section 2: Consumption Profile
+            pdf.chapter_title("2. Psychological Consumption Profile")
+            pdf.chapter_body("지출을 투자/경험/습관/고정 비용으로 나눈 심리적 소비 분류 요약입니다:")
+            
+            # Simpler table for PDF
+            psycho_summary_display = psycho_summary.copy()
+            psycho_summary_display['Amount (KRW)'] = psycho_summary_display['Amount (KRW)'].apply(lambda x: f"{x:,.0f}")
+            
+            # PDF에 표 추가 (첫 2개 컬럼만 사용)
+            pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
+
+            # Section 3: Chat Consultation History
+            pdf.chapter_title("3. Financial Expert Consultation History")
+            pdf.set_font('Malgun Gothic', '', 9)
+            
+            for chat in chat_history_list:
+                role = "Advisor" if chat['role'] == 'assistant' else "You"
+                text = chat['content'].replace('\n', ' ')
+                pdf.multi_cell(0, 4, f"{role}: {text}", border=0)
+                pdf.ln(1)
+            
+            # Section 4: Detailed Transaction Data (Truncated for report view)
+            pdf.chapter_title("4. Detailed Transaction History")
+            pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역 (일부 발췌):")
+            
+            detailed_data = all_items_df[['Date', 'Item Name', 'AI Category', 'KRW Total Spend', 'Store']].head(10)
+            detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
+            pdf.add_table(detailed_data, ['Date', 'Item Name', 'Category', 'Amount (KRW)', 'Store'])
+            
+            return pdf.output(dest='S').encode('latin-1')
+
+
+        # 3. Streamlit Download Button
+        pdf_output = create_pdf_report(
+            psycho_summary_pdf, 
+            total_spent, 
+            impulse_index, 
+            highest_impulse_category, 
+            st.session_state.chat_history
+        )
+        
+        st.download_button(
+            label="⬇️ Download PDF Report",
+            data=pdf_output,
+            file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
+            mime='application/pdf',
+        )
+
+        st.info("💡 **참고:** PDF 생성을 위해 'Malgun Gothic' 폰트가 사용됩니다. 폰트 오류 시 Streamlit 환경을 확인해주세요.")
