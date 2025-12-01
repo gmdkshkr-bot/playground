@@ -20,50 +20,52 @@ try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
     EXCHANGE_RATE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
-    # KAKAO_REST_API_KEY는 더 이상 사용하지 않습니다.
+    # 📢 [NEW] 카카오 API 키 로드
+    KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
+    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
     st.stop()
 
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
 
-# --- 📢 [UPDATED] Geocoding Helper Function (Nominatim/OpenStreetMap 적용) ---
+# --- 📢 [UPDATED] Geocoding Helper Function (Kakao API 최적화) ---
 @st.cache_data(ttl=datetime.timedelta(hours=48))
 def geocode_address(address: str) -> tuple[float, float]:
     """
-    Nominatim (OpenStreetMap)을 사용하여 주소를 위도와 경도로 변환합니다. (무료)
-    *주의: Nominatim 정책 준수를 위해 요청 제한(rate limit)을 적용합니다.
+    카카오 로컬 API를 사용하여 주소를 위도와 경도로 변환합니다. (Kakao Maps API)
+    📢 time.sleep(1) 제거하여 속도 최적화
     """
     if not address or address == "Manual Input Location" or address == "Imported Location":
         # 유효하지 않은 주소는 서울 중심의 기본 좌표를 반환
         return 37.5665, 126.9780
     
-    url = "https://nominatim.openstreetmap.org/search"
-    
-    # 📢 중요: Nominatim은 User-Agent를 요구하며, 요청 제한 준수를 위해 time.sleep(1)을 사용합니다.
-    headers = {'User-Agent': 'ReceiptAnalyzerApp (contact@example.com)'} 
-    params = {"q": address, "format": "json", "limit": 1, "countrycodes": "kr"} # 한국 주소만 검색하도록 제한
-    
-    # 요청 제한 방지: 1초 지연
-    time.sleep(1) 
+    # 📢 Kakao Local API 호출 설정
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+    params = {"query": address}
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=5)
         response.raise_for_status()
         data = response.json()
         
-        if data and len(data) > 0:
-            # Nominatim은 'lat'(위도)와 'lon'(경도)을 반환합니다.
-            lat = float(data[0].get('lat', 0))
-            lon = float(data[0].get('lon', 0))
+        if data and data.get('documents'):
+            # 첫 번째 검색 결과 사용
+            document = data['documents'][0]
+            # Kakao API는 경도(x)를 먼저, 위도(y)를 나중에 반환합니다.
+            lat = float(document.get('y', 0))
+            lon = float(document.get('x', 0))
             
+            # 유효성 검사
             if lat != 0 and lon != 0:
                 return lat, lon
 
     except requests.exceptions.RequestException as e:
-        st.sidebar.error(f"❌ Nominatim API Error for '{address}'. Using fallback: {e}")
+        # API 요청 오류 (네트워크, 4xx, 5xx 오류)
+        st.sidebar.error(f"❌ Kakao Geocoding API Error for '{address}'. Using fallback: {e}")
     except Exception as e:
+        # JSON 파싱 등 기타 오류
         st.sidebar.warning(f"⚠️ Geocoding Processing Error for '{address}'. Using fallback: {e}")
 
     # 모든 실패 시나리오에서 서울 기본 좌표 반환
@@ -1407,7 +1409,7 @@ with tab3:
             psycho_summary_display['Amount (KRW)'] = psycho_summary_display['Amount (KRW)'].apply(lambda x: f"{x:,.0f}")
             
             # PDF에 표 추가 (첫 2개 컬럼만 사용)
-            pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
+            pdf.add_table(psyco_summary_display, ['Category', 'Amount (KRW)'])
 
             # Section 3: Chat Consultation History
             pdf.chapter_title("3. Financial Expert Consultation History")
