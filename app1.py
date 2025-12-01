@@ -198,10 +198,12 @@ def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     return amount * rate
 
 # Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
-# Global Categories (Updated for professional, detailed analysis)
+# 📢 [MODIFIED] Household Goods 카테고리 세분화
 ALL_CATEGORIES = [
     "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars", 
-    "Groceries", "Household Goods", "Medical & Pharmacy", "Health Supplements",
+    "Groceries", 
+    "Household Essentials", "Beauty & Cosmetics", "Clothing & Fashion", # 📢 세분화된 카테고리
+    "Medical & Pharmacy", "Health Supplements",
     "Education & Books", "Hobby & Skill Dev.", "Public Utilities", "Communication Fees", 
     "Public Transit", "Fuel & Vehicle Maint.", "Parking & Tolls", "Taxi Convenience",
     "Movies & Shows", "Travel & Accommodation", "Games & Digital Goods", 
@@ -218,6 +220,7 @@ PSYCHOLOGICAL_CATEGORIES = [
 
 # --- New Global Variable for Psychological Analysis ---
 # Maps the detailed sub-category to its primary psychological spending nature.
+# 📢 [MODIFIED] SPENDING_NATURE 재매핑
 SPENDING_NATURE = {
     # FIXED / ESSENTIAL (고정/필수)
     "Rent & Mortgage": "Fixed_Essential",
@@ -235,13 +238,15 @@ SPENDING_NATURE = {
     
     # PLANNED CONSUMPTION / VARIABLE (계획적 소비/변동비)
     "Groceries": "Consumption_Planned",
-    "Household Goods": "Consumption_Planned",
+    "Household Essentials": "Consumption_Planned", # 📢 [MODIFIED] 필수 생활용품은 계획 소비로 분류
     "Fuel & Vehicle Maint.": "Consumption_Planned", # Essential Variable
     
     # EXPERIENCE / DISCRETIONARY (경험적/선택적)
     "Dining Out": "Consumption_Experience",
     "Travel & Accommodation": "Consumption_Experience",
     "Movies & Shows": "Consumption_Experience",
+    "Beauty & Cosmetics": "Consumption_Experience", # 📢 [MODIFIED]
+    "Clothing & Fashion": "Consumption_Experience", # 📢 [MODIFIED]
     
     # IMPULSE / LOSS (충동/손실)
     "Casual Dining": "Impulse_Habitual", # 잦은 습관성 소액 지출
@@ -283,7 +288,8 @@ def get_category_guide():
     guide = ""
     categories = {
         "FIXED / ESSENTIAL": ["Rent & Mortgage", "Communication Fees", "Public Utilities", "Public Transit", "Parking & Tolls"],
-        "VARIABLE / CONSUMPTION": ["Groceries", "Household Goods", "Fuel & Vehicle Maint.", "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars"],
+        # 📢 [MODIFIED] 카테고리 가이드 업데이트
+        "VARIABLE / CONSUMPTION": ["Groceries", "Household Essentials", "Beauty & Cosmetics", "Clothing & Fashion", "Fuel & Vehicle Maint.", "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars"],
         "INVESTMENT / ASSET": ["Medical & Pharmacy", "Health Supplements", "Education & Books", "Hobby & Skill Dev.", "Events & Gifts"],
         "DISCRETIONARY / LOSS": ["Travel & Accommodation", "Movies & Shows", "Games & Digital Goods", "Taxi Convenience", "Fees & Penalties", "Unclassified"],
     }
@@ -363,8 +369,8 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     
     **Classification Guide (Choose ONE sub-category for 'category' field):**
     - **FIXED / ESSENTIAL:** Rent & Mortgage, Communication Fees, Public Utilities, Public Transit, Fuel & Vehicle Maint., Parking & Tolls
-    - **VARIABLE / CONSUMPTION (Planned):** Groceries, Household Goods
-    - **VARIABLE / CONSUMPTION (Experience):** Dining Out, Travel & Accommodation, Movies & Shows
+    - **VARIABLE / CONSUMPTION (Planned):** Groceries, Household Essentials # 📢 수정됨
+    - **VARIABLE / CONSUMPTION (Experience):** Dining Out, Travel & Accommodation, Movies & Shows, Beauty & Cosmetics, Clothing & Fashion # 📢 수정됨
     - **INVESTMENT / ASSET:** Medical & Pharmacy, Health Supplements, Education & Books, Hobby & Skill Dev., Events & Gifts
     - **IMPULSE / LOSS:** Casual Dining, Coffee & Beverages, Alcohol & Bars, Games & Digital Goods, Taxi Convenience, Fees & Penalties, Unclassified
         
@@ -402,7 +408,6 @@ def analyze_receipt_with_gemini(_image: Image.Image):
         return None
 
 # --- 2. AI Analysis Report Generation Function ---
-# generate_ai_analysis 함수는 tab1에서 사용되지 않으므로, 코드를 그대로 유지하여 tab2에서 사용할 수 있게 합니다.
 def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount: float, currency_unit: str, detailed_items_text: str):
     """
     Generates an AI analysis report based on aggregated spending data and detailed items.
@@ -1169,6 +1174,7 @@ with tab2:
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
         # MODIFIED SYSTEM INSTRUCTION (CRITICAL)
+        # 📢 [MODIFIED] Alternative Recommendation Task에 효용 최적화 지침 추가
         system_instruction = f"""
         You are a supportive, friendly, and highly knowledgeable Financial Psychologist and Advisor. Your role is to analyze the user's spending habits from a **psychological and behavioral economics perspective**, and provide personalized advice on overcoming impulse spending and optimizing happiness per won. Your tone should be consistently polite and helpful, like a professional mentor.
         
@@ -1183,13 +1189,13 @@ with tab2:
         {items_text_for_chat}
         ---
 
-        --- Alternative Recommendation Task (NEW) ---
-        Based on the data, the user's highest impulse/loss spending is in the **'{highest_impulse_category}'** category, amounting to **{highest_impulse_amount:,.0f} KRW**.
+        --- Alternative Recommendation Task (NEW - Utility Optimization) ---
+        The user's highest impulse/loss spending is in the **'{highest_impulse_category}'** category, amounting to **{highest_impulse_amount:,.0f} KRW**.
         
-        When the user asks for alternatives or efficiency advice, you MUST perform the following:
-        1. Identify the core utility (e.g., comfort, energy, pleasure, time-saving) the user gains from spending on **'{highest_impulse_category}'**.
-        2. Propose 2-3 specific, actionable, and low-cost alternatives that satisfy the same core utility while aiming to **reduce the cost by at least 30%**.
-        3. Frame the advice in a supportive and friendly manner.
+        When the user asks for alternatives or efficiency advice (e.g., "비용을 줄일 대안을 추천해주세요"), you MUST prioritize and perform the following:
+        1. Identify the core utility (e.g., comfort, energy, pleasure, time-saving, social belonging) the user gains from spending on **'{highest_impulse_category}'** or a specific high-frequency impulse item.
+        2. Propose 2-3 specific, actionable, and low-cost alternatives that satisfy the *same core utility* while aiming to **reduce the expense by at least 30%**.
+        3. Examples of alternatives: *Home-brewed coffee for routine, pre-planning walking route instead of taxi, frozen meal kit instead of dining out.*
 
         Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index (Refined)**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
         """
