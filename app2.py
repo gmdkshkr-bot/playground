@@ -1409,7 +1409,7 @@ with tab3:
             psycho_summary_display['Amount (KRW)'] = psycho_summary_display['Amount (KRW)'].apply(lambda x: f"{x:,.0f}")
             
             # PDF에 표 추가 (첫 2개 컬럼만 사용)
-            pdf.add_table(psyco_summary_display, ['Category', 'Amount (KRW)'])
+            pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
 
             # Section 3: Chat Consultation History
             pdf.chapter_title("3. Financial Expert Consultation History")
