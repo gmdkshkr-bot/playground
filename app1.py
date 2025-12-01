@@ -1384,12 +1384,15 @@ with tab3:
             
             # 📢 [FIX] 폰트 파일 로드 (모듈 의존성 해제 및 내장 폰트 사용)
             try:
-                 # fpdf2에 포함된 유니코드 폰트(DejaVu Sans)를 추가 (추가 파일 불필요)
-                 pdf.add_font('DejaVu', '', '/home/adminuser/venv/lib/python3.13/site-packages/fpdf/font/DejaVuSansCondensed.ttf', uni=True)
-                 pdf.add_font('DejaVu', 'B', '/home/adminuser/venv/lib/python3.13/site-packages/fpdf/font/DejaVuSansCondensed-Bold.ttf', uni=True)
-            except Exception:
-                 # 경로 설정이 까다로우므로, set_font('DejaVu')만 사용하도록 fallback
-                 pass 
+                 # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
+                 pdf.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
+                 pdf.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
+                 pdf.set_font('Nanum', '', 10) # 기본 폰트 설정
+            except Exception as e:
+                 # 폰트 로드 실패 시 None 반환 및 사용자에게 오류 표시
+                 st.error(f"❌ PDF 폰트 로드 실패: 'fonts/' 폴더에 NanumGothic 폰트 파일이 누락되었거나 경로가 잘못되었습니다.")
+                 st.exception(e)
+                 return None 
             
             pdf.set_auto_page_break(auto=True, margin=15)
             pdf.add_page()
