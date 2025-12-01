@@ -1084,7 +1084,7 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-# 		 	TAB 2: FINANCIAL EXPERT CHAT (유지)
+# 		 	TAB 2: FINANCIAL EXPERT CHAT (수정됨)
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
@@ -1093,19 +1093,15 @@ with tab2:
         st.warning("Please analyze at least one receipt or load a CSV in the 'Analysis & Tracking' tab before starting a consultation.")
     else:
         # --- 🌟 Chat History Reset Logic (Fix 2) 🌟 ---
-        # 현재 영수증 기록을 기반으로 해시 생성
-        # all_receipts_summary의 'id' 목록으로 데이터 변경 여부를 감지합니다.
         current_data_hash = hash(tuple(item['id'] for item in st.session_state.all_receipts_summary))
         
-        # 데이터가 변경되었는지 확인
         if 'last_data_hash' not in st.session_state or st.session_state.last_data_hash != current_data_hash:
-            # 데이터가 변경된 경우, 채팅 기록과 해시를 리셋합니다.
             st.session_state.chat_history = []
             st.session_state.last_data_hash = current_data_hash
             st.info("📊 새로운 지출 내역이 감지되었습니다. 신선한 분석을 위해 채팅 기록이 초기화됩니다.")
+        
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
-        # Defensive check for KRW Total Spend column
         if 'KRW Total Spend' not in all_items_df.columns:
              all_items_df['KRW Total Spend'] = all_items_df.apply(
                  lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
@@ -1128,10 +1124,8 @@ with tab2:
         
         # Add Tip (Only) to the 'Fixed / Essential Cost' category
         if tax_tip_only_total > 0:
-            # Find or create the Fixed / Essential Cost entry
             fixed_cost_index = psychological_summary[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[3]].index
             if not fixed_cost_index.empty:
-                # Tip만 Fixed Cost에 합산
                 psychological_summary.loc[fixed_cost_index[0], 'KRW Total Spend'] += tax_tip_only_total 
             else:
                 new_row = pd.DataFrame([{'Category': PSYCHOLOGICAL_CATEGORIES[3], 'KRW Total Spend': tax_tip_only_total}])
@@ -1139,9 +1133,23 @@ with tab2:
 
         total_spent = psychological_summary['KRW Total Spend'].sum()
         
-        # Calculate the Impulse Spending Index
+        # 📢 [NEW] 정교한 충동 지수 계산 로직
         impulse_spending = psychological_summary.loc[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[2], 'KRW Total Spend'].sum()
-        impulse_index = impulse_spending / total_spent if total_spent > 0 else 0.0
+        
+        total_transactions = len(all_items_df)
+        impulse_transactions = len(all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]])
+        
+        if total_spent > 0 and total_transactions > 0:
+            # 1. 금액 기반 비율
+            amount_ratio = impulse_spending / total_spent
+            # 2. 빈도 기반 비율 (충동 지출이 전체 거래에서 차지하는 비중의 제곱근)
+            frequency_ratio_factor = np.sqrt(impulse_transactions / total_transactions)
+            
+            # 3. 최종 정교화된 지수 (금액 비율 * 빈도 가중치)
+            impulse_index = amount_ratio * frequency_ratio_factor
+        else:
+            impulse_index = 0.0
+        # 📢 [NEW] 정교한 충동 지수 계산 로직 종료
         
         psychological_summary_text = psychological_summary.to_string(index=False)
         
@@ -1149,17 +1157,14 @@ with tab2:
         highest_impulse_category = ""
         highest_impulse_amount = 0
         
-        # 1. 충동 지출 카테고리만 필터링
         impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
         
         if not impulse_items_df.empty:
-            # 2. 세부 카테고리별 합계 계산
             impulse_category_sum = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
             if not impulse_category_sum.empty:
                 highest_impulse_category = impulse_category_sum.idxmax()
                 highest_impulse_amount = impulse_category_sum.max()
         
-        # Prepare detailed item data for the chatbot's system instruction
         detailed_items_for_chat = all_items_df[['Psychological Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
@@ -1169,7 +1174,7 @@ with tab2:
         
         The user's cumulative spending data for the current session (All converted to KRW) is analyzed by its **Psychological Spending Nature**:
         - **Total Accumulated Spending**: {total_spent:,.0f} KRW
-        - **Calculated Impulse Spending Index**: {impulse_index:.2f} (Target: < 0.20)
+        - **Calculated Impulse Spending Index (Refined)**: {impulse_index:.2f} (Target: < 0.15 for Refined Index)
         - **Psychological Category Breakdown (Category, Amount)**:
         {psychological_summary_text}
         
@@ -1186,15 +1191,13 @@ with tab2:
         2. Propose 2-3 specific, actionable, and low-cost alternatives that satisfy the same core utility while aiming to **reduce the cost by at least 30%**.
         3. Frame the advice in a supportive and friendly manner.
 
-        Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
+        Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index (Refined)**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
         """
 
         # 💡 초기 메시지 추가 (UX 개선)
         if not st.session_state.chat_history or (len(st.session_state.chat_history) == 1 and st.session_state.chat_history[0]["content"].startswith("안녕하세요! 저는 귀하의 지출 패턴을 분석하는")):
-              # 챗 기록이 없거나, 이전 버전의 초기 메시지만 있을 경우 재설정
               st.session_state.chat_history = []
               
-              # 📢 초기 메시지에 최고 충동 카테고리 정보 추가
               if highest_impulse_category:
                   impulse_info = f"가장 높은 충동성 지출은 **{highest_impulse_category}** 카테고리이며, 총 **{highest_impulse_amount:,.0f} KRW**입니다."
               else:
@@ -1203,21 +1206,18 @@ with tab2:
               initial_message = f"""
               안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
               현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
-              귀하의 **소비 충동성 지수 (Impulse Spending Index)**는 **{impulse_index:.2f}**입니다. (목표치는 0.20 이하)
+              귀하의 **정교한 소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
               {impulse_info}
 
               어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
 
-              * "제 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"
+              * **"제 정교한 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
               * **"제일 많이 쓰는 충동성 항목({highest_impulse_category} 등)의 비용을 줄일 대안을 추천해주세요."**
               * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
               """
               st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
 
         # Display chat history
-        # ... (이하 기존 채팅 history display 및 prompt input 로직 유지)
-        
-        # ... (이하 기존 채팅 history display 및 prompt input 로직 유지)
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
@@ -1232,12 +1232,10 @@ with tab2:
             with st.chat_message("assistant"):
                 with st.spinner("Expert is thinking..."):
                     try:
-                        # --- 🌟 수정된 역할 매핑 로직 시작 🌟 ---
                         combined_contents = []
-                        history_items = st.session_state.chat_history # 모든 기록을 사용 (마지막 user prompt 포함)
+                        history_items = st.session_state.chat_history 
                         
                         for item in history_items:
-                            # Streamlit 역할(user, assistant)을 Gemini 역할(user, model)로 매핑합니다.
                             gemini_role = "user" if item["role"] == "user" else "model" 
                             
                             combined_contents.append({
@@ -1245,14 +1243,9 @@ with tab2:
                                 "parts": [{"text": item["content"]}]
                             })
                         
-                        # Note: st.session_state.chat_history에 마지막 user prompt가 이미 추가되어 있으므로,
-                        # combined_contents는 마지막까지 정확히 구성됩니다.
-                        
-                        # --- 🌟 수정된 역할 매핑 로직 종료 🌟 ---
-
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=combined_contents, # ⬅️ 이제 올바른 역할(user/model)이 포함됨
+                            contents=combined_contents, 
                             config=genai.types.GenerateContentConfig(
                                 system_instruction=system_instruction
                             )
