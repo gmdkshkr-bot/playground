@@ -19,7 +19,7 @@ from fpdf import FPDF # 📢 PDF 라이브러리 임포트 (fpdf2 설치 필요)
 try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    EXCHANGE_RATE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
     # 📢 [NEW] 카카오 API 키 로드
     KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
@@ -995,40 +995,65 @@ with tab1:
         
         st.markdown("---")
         
-        # --- 📢 [NEW] Map Visualization Section ---
-        st.subheader("📍 Spending Map Visualization")
+        # 📢 [NEW] Spending Trend and Map Visualization in Parallel
+        col_trend, col_map = st.columns(2)
         
-        map_df = summary_df.copy()
-        # st.map은 'lat'과 'lon' 컬럼을 기대합니다.
-        map_df.columns = [col.replace('latitude', 'lat').replace('longitude', 'lon') for col in map_df.columns]
-
-        if not map_df.empty and 'lat' in map_df.columns and 'lon' in map_df.columns:
+        with col_trend:
+            # --- Spending Trend Over Time Chart (KRW based) ---
+            st.subheader("📈 Spending Trend Over Time")
             
-            # 📢 [CRITICAL FIX] lat/lon 컬럼의 결측치(NaN)가 StreamlitAPIException을 발생시키므로,
-            #    유효한 좌표를 가진 행만 필터링합니다.
-            map_data = map_df[map_df['Total'] > 0].dropna(subset=['lat', 'lon'])
+            summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
             
-            if not map_data.empty:
-                # 중앙 위치 계산 (전체 데이터의 평균)
-                # center_lat = map_data['lat'].mean()
-                # center_lon = map_data['lon'].mean()
+            if not summary_df_raw.empty:
                 
-                st.map(
-                    map_data, 
-                    latitude='lat', 
-                    longitude='lon', 
-                    color='#ff6347', # 산호색
-                    zoom=11, 
-                    use_container_width=True
-                )
+                summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
+                summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
+                
+                daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
+                daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
+                daily_spending.columns = ['Date', 'Daily Total Spend']
+                
+                if not daily_spending.empty:
+                    fig_trend = px.line(
+                        daily_spending, x='Date', y='Daily Total Spend',
+                        title=f'Daily Spending Trend (Unit: {display_currency_label})',
+                        labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
+                        markers=True
+                    )
+                    fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+                    st.plotly_chart(fig_trend, use_container_width=True)
+                else:
+                    st.warning("Date data is not available or not properly formatted to show the trend chart.")
+        
+        with col_map:
+            # --- Spending Map Visualization Section ---
+            st.subheader("📍 Spending Map Visualization")
             
+            map_df = summary_df.copy()
+            # st.map은 'lat'과 'lon' 컬럼을 기대합니다.
+            map_df.columns = [col.replace('latitude', 'lat').replace('longitude', 'lon') for col in map_df.columns]
+    
+            if not map_df.empty and 'lat' in map_df.columns and 'lon' in map_df.columns:
+                
+                map_data = map_df[map_df['Total'] > 0].dropna(subset=['lat', 'lon'])
+                
+                if not map_data.empty:
+                    st.map(
+                        map_data, 
+                        latitude='lat', 
+                        longitude='lon', 
+                        color='#ff6347', # 산호색
+                        zoom=11, 
+                        use_container_width=True
+                    )
+                
+                else:
+                    st.warning("유효한 좌표 정보가 있는 지출 기록이 없어 지도를 표시할 수 없습니다.")
             else:
-                st.warning("유효한 좌표 정보가 있는 지출 기록이 없어 지도를 표시할 수 없습니다.")
-        else:
-            st.warning("위치 정보가 없거나 좌표 컬럼이 유효하지 않아 지도를 표시할 수 없습니다.")
+                st.warning("위치 정보가 없거나 좌표 컬럼이 유효하지 않아 지도를 표시할 수 없습니다.")
+
 
         st.markdown("---")
-        # --- 📢 [NEW] Map Visualization Section End ---
         
         st.subheader("🛒 Integrated Detail Items") 
         
@@ -1089,33 +1114,6 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No spending data found to generate the pie chart.")
-
-        # --- Spending Trend Over Time Chart (KRW based) ---
-        st.markdown("---")
-        st.subheader("📈 Spending Trend Over Time")
-        
-        summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
-        
-        if not summary_df_raw.empty:
-            
-            summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
-            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
-            
-            daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
-            daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
-            daily_spending.columns = ['Date', 'Daily Total Spend']
-            
-            if not daily_spending.empty:
-                fig_trend = px.line(
-                    daily_spending, x='Date', y='Daily Total Spend',
-                    title=f'Daily Spending Trend (Unit: {display_currency_label})',
-                    labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
-                    markers=True
-                )
-                fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-                st.plotly_chart(fig_trend, use_container_width=True)
-            else:
-                st.warning("Date data is not available or not properly formatted to show the trend chart.")
         
         # 4. Reset and Download Buttons
         st.markdown("---")
@@ -1259,14 +1257,14 @@ with tab2:
                   impulse_info = "아직 충동성 지출 항목이 명확하게 분석되지 않았습니다."
 
               initial_message = f"""
-              안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
+              안녕하세요! 저는 귀하의 소비를 분석해주는 AI 금융과 심리 전문가입니다. 🧠
               현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
-              귀하의 **정교한 소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
+              귀하의 **소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
               {impulse_info}
 
-              어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+              어떤 부분에 대해 더 자세한 금융적, 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
 
-              * **"제 정교한 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
+              * **"제 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
               * **"제일 많이 쓰는 충동성 항목({highest_impulse_category} 등)의 비용을 줄일 대안을 추천해주세요."**
               * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
               """
@@ -1378,6 +1376,7 @@ with tab3:
             # 폰트 로딩 실패 시 바로 None을 반환하도록 로직 변경
             try:
                  # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
+                 # 🚨 폰트 이름 통일: NanumGothic 대신 'Nanum' 사용
                  pdf.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
                  pdf.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
                  pdf.set_font('Nanum', '', 10) # 기본 폰트 설정
@@ -1438,8 +1437,8 @@ with tab3:
             # 📢 [FIX] 컬럼 이름 수정: Date와 Store를 포함
             pdf.add_table(detailed_data, ['Date', 'Store', 'Item Name', 'Category', 'Amount (KRW)'])
             
-            # 📢 [FIX] output() 호출 시 .encode('latin-1') 제거
-            pdf_result = bytes(pdf.output(dest='S'))
+            # 📢 [CRITICAL FIX] output() 결과를 bytes()로 변환
+            pdf_result = bytes(pdf.output(dest='S')) 
             return pdf_result
 
 
