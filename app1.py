@@ -141,7 +141,7 @@ def get_exchange_rates():
     Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
     # Fallback Rates는 1 단위 외화당 KRW 값입니다. (보다 현실적인 환율로 조정)
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
@@ -1325,7 +1325,23 @@ with tab3:
     else:
         
         # 1. 데이터 준비 (PDF 보고서에 필요한 핵심 지표 재계산)
-        all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
+        # 📢 [FIX] 1. Summary 데이터와 Item 데이터를 결합하여 날짜/상점 정보를 Item에 추가
+        summary_list = st.session_state.all_receipts_summary
+        items_list = st.session_state.all_receipts_items
+        
+        items_with_meta = []
+        for item_df, summary in zip(items_list, summary_list):
+            item_df_copy = item_df.copy()
+            
+            if 'Date' not in item_df_copy.columns:
+                item_df_copy['Date'] = summary.get('Date', 'N/A')
+            if 'Store' not in item_df_copy.columns:
+                item_df_copy['Store'] = summary.get('Store', 'N/A')
+                
+            items_with_meta.append(item_df_copy)
+            
+        all_items_df = pd.concat(items_with_meta, ignore_index=True)
+        
         all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
         
         # 심리적 요약 데이터
