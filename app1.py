@@ -22,7 +22,7 @@ try:
     # 📢 [NEW] 카카오 API 키 로드
     KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
+    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
     st.stop()
 
 # Initialize GenAI client
@@ -1145,6 +1145,20 @@ with tab2:
         
         psychological_summary_text = psychological_summary.to_string(index=False)
         
+        # 📢 [NEW] 대안 추천 로직을 위한 최고 충동 지출 카테고리/항목 계산
+        highest_impulse_category = ""
+        highest_impulse_amount = 0
+        
+        # 1. 충동 지출 카테고리만 필터링
+        impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
+        
+        if not impulse_items_df.empty:
+            # 2. 세부 카테고리별 합계 계산
+            impulse_category_sum = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
+            if not impulse_category_sum.empty:
+                highest_impulse_category = impulse_category_sum.idxmax()
+                highest_impulse_amount = impulse_category_sum.max()
+        
         # Prepare detailed item data for the chatbot's system instruction
         detailed_items_for_chat = all_items_df[['Psychological Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
@@ -1164,6 +1178,14 @@ with tab2:
         {items_text_for_chat}
         ---
 
+        --- Alternative Recommendation Task (NEW) ---
+        Based on the data, the user's highest impulse/loss spending is in the **'{highest_impulse_category}'** category, amounting to **{highest_impulse_amount:,.0f} KRW**.
+        
+        When the user asks for alternatives or efficiency advice, you MUST perform the following:
+        1. Identify the core utility (e.g., comfort, energy, pleasure, time-saving) the user gains from spending on **'{highest_impulse_category}'**.
+        2. Propose 2-3 specific, actionable, and low-cost alternatives that satisfy the same core utility while aiming to **reduce the cost by at least 30%**.
+        3. Frame the advice in a supportive and friendly manner.
+
         Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
         """
 
@@ -1171,17 +1193,24 @@ with tab2:
         if not st.session_state.chat_history or (len(st.session_state.chat_history) == 1 and st.session_state.chat_history[0]["content"].startswith("안녕하세요! 저는 귀하의 지출 패턴을 분석하는")):
               # 챗 기록이 없거나, 이전 버전의 초기 메시지만 있을 경우 재설정
               st.session_state.chat_history = []
+              
+              # 📢 초기 메시지에 최고 충동 카테고리 정보 추가
+              if highest_impulse_category:
+                  impulse_info = f"가장 높은 충동성 지출은 **{highest_impulse_category}** 카테고리이며, 총 **{highest_impulse_amount:,.0f} KRW**입니다."
+              else:
+                  impulse_info = "아직 충동성 지출 항목이 명확하게 분석되지 않았습니다."
+
               initial_message = f"""
               안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
               현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
-              귀하의 **소비 충동성 지수 (Impulse Spending Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.20 이하)
+              귀하의 **소비 충동성 지수 (Impulse Spending Index)**는 **{impulse_index:.2f}**입니다. (목표치는 0.20 이하)
+              {impulse_info}
 
-              이 지수는 귀하의 지출 중 비계획적이고 습관적인 손실성 소비의 비율을 나타냅니다.
               어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
 
               * "제 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"
+              * **"제일 많이 쓰는 충동성 항목({highest_impulse_category} 등)의 비용을 줄일 대안을 추천해주세요."**
               * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
-              * "제 지출에서 가장 큰 **습관적 손실** 항목을 알려주세요."
               """
               st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
 
