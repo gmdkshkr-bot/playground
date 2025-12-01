@@ -1439,7 +1439,7 @@ with tab3:
             # 📢 [FIX] 컬럼 이름 수정: Date와 Store를 포함
             pdf.add_table(detailed_data, ['Date', 'Store', 'Item Name', 'Category', 'Amount (KRW)'])
             
-            pdf_result = pdf.output(dest='S').encode('latin-1')
+            pdf_result = pdf.output(dest='S') #.encode('latin-1')
             return pdf_result
 
 
