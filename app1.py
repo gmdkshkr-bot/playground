@@ -453,28 +453,28 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
 class PDF(FPDF):
     def header(self):
         # 📢 [FIX] Nanum Gothic으로 폰트 설정
-        self.set_font('Nanum', 'B', 15)
+        self.set_font('NanumGothic', 'B', 15)
         self.cell(0, 10, 'Personal Spending Analysis Report', 0, 1, 'C')
         self.ln(10)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font('Nanum', 'I', 8)
+        self.set_font('NanumGothic', 'I', 8)
         self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
     def chapter_title(self, title):
-        self.set_font('Nanum', 'B', 12)
+        self.set_font('NanumGothic', 'B', 12)
         self.set_fill_color(220, 220, 220)
         self.cell(0, 6, title, 0, 1, 'L', 1)
         self.ln(4)
 
     def chapter_body(self, body):
-        self.set_font('Nanum', '', 10)
+        self.set_font('NanumGothic', '', 10)
         self.multi_cell(0, 5, body)
         self.ln()
 
     def add_table(self, data: pd.DataFrame, header_titles: list):
-        self.set_font('Nanum', 'B', 8)
+        self.set_font('NanumGothic', 'B', 8)
         
         # 📢 [FIX] 테이블 너비 자동 계산 (PDF 너비 190mm 기준)
         num_cols = len(header_titles)
@@ -486,7 +486,7 @@ class PDF(FPDF):
         self.ln()
 
         # Data rows
-        self.set_font('Nanum', '', 8)
+        self.set_font('NanumGothic', '', 8)
         for _, row in data.iterrows():
             row_list = [str(item) for item in row.iloc[:len(header_titles)]]
             
@@ -1377,9 +1377,9 @@ with tab3:
             # 📢 [NEW FIX] Nanum Gothic 폰트 로드 (fonts/ 폴더 사용)
             try:
                  # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
-                 pdf.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
-                 pdf.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
-                 pdf.set_font('Nanum', '', 10) # 기본 폰트 설정
+                 pdf.add_font('NanumGothic', '', 'fonts/NanumGothic.ttf', uni=True) 
+                 pdf.add_font('NanumGothicBold', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
+                 pdf.set_font('NanumGothic', '', 10) # 기본 폰트 설정
             except Exception as e:
                  # 폰트 로드 실패 시 None 반환 및 사용자에게 오류 표시
                  st.error(f"❌ PDF 폰트 로드 실패: 'fonts/' 폴더에 NanumGothic 폰트 파일이 누락되었거나 경로가 잘못되었습니다.")
@@ -1413,7 +1413,7 @@ with tab3:
 
             # Section 3: Chat Consultation History
             pdf.chapter_title("3. Financial Expert Consultation History")
-            pdf.set_font('Nanum', '', 9)
+            pdf.set_font('NanumGothic', '', 9)
             
             # 📢 [FIX] 채팅 기록이 없는 경우 처리
             if not chat_history_list:
