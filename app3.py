@@ -1234,12 +1234,15 @@ with tab2:
               """
               st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
 
-        # Display chat history
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+        # --- [수정] 대화 기록을 컨테이너로 감싸서 입력 바가 고정되도록 합니다. ---
+        chat_history_container = st.container() 
+        
+        with chat_history_container: # 대화 기록을 컨테이너 안에 표시
+            for message in st.session_state.chat_history:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
-        # Process user input
+        # Process user input (st.chat_input이 이제 컨테이너 아래에 위치하며, Streamlit의 고정 위치 기능을 활용합니다.)
         if prompt := st.chat_input("Ask for financial advice or review your spending..."):
             
             st.session_state.chat_history.append({"role": "user", "content": prompt})
