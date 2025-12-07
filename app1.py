@@ -128,7 +128,7 @@ def get_exchange_rates():
     Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
     # Fallback Rates: 1 Foreign Unit = X KRW
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
@@ -406,7 +406,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     {summary_text}
     ---
     
-    **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+    **CRITICAL DETAILED DATA:** Below are the individual item names, their original AI categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores, or refer to high-frequency, low-value items that drive the Impulse Index).
     --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
     {detailed_items_text}
     ---
@@ -427,6 +427,40 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
         
     except Exception as e:
         return "Failed to generate analysis report."
+
+# 📢 [NEW] Chat Summary Function
+def generate_chat_summary(chat_history: list, total_spent: float, impulse_index: float, high_impulse_cat: str) -> str:
+    """
+    Calls the Gemini model to summarize the main financial advice and alternatives from the chat history.
+    """
+    
+    history_text = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in chat_history])
+
+    prompt_template = f"""
+    You are summarizing a financial consultation transcript.
+    The user's spending profile: Total Spent {total_spent:,.0f} KRW, Impulse Index {impulse_index:.2f}, Highest Impulse Category '{high_impulse_cat}'.
+    
+    **Instructions:**
+    1. Analyze the full chat history below.
+    2. Extract the **main psychological insight** shared with the user (e.g., spending patterns, index interpretation).
+    3. Summarize the **2-3 most critical, specific, and actionable low-cost alternatives or efficiency tips** recommended to the user.
+    4. Provide the summary as a concise, professional, and objective paragraph.
+
+    --- Chat Transcript ---
+    {history_text}
+    ---
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt_template],
+        )
+        return response.text
+        
+    except Exception as e:
+        return "Failed to generate chat summary report due to an AI processing error."
+
 
 # 📢 [NEW] PDF 생성 클래스 (fpdf2 기반)
 class PDF(FPDF):
@@ -478,14 +512,14 @@ class PDF(FPDF):
             self.ln()
 
 
-# 📢 [NEW] Font loading function for PDF (non-cached)
-def register_pdf_fonts(_pdf_instance):
+# 📢 [FIX] Removed cache decorator
+def register_pdf_fonts(pdf_instance):
     """Registers Nanum fonts with FPDF, returns False if failed."""
-    # 📢 [FIX] Removed @st.cache_resource to avoid UnhashableParamError
+    # 📢 [FIX] Removed cache decorator to prevent UnhashableParamError
     try:
          # Uses relative path from app root/fonts folder
-         _pdf_instance.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
-         _pdf_instance.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
+         pdf_instance.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
+         pdf_instance.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
          return True
     except Exception as e:
          return False 
@@ -1316,17 +1350,14 @@ with tab3:
             pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
 
             # Section 3: Chat Consultation History
-            pdf.chapter_title("3. Financial Expert Consultation History")
-            pdf.set_font('Nanum', '', 9)
+            pdf.chapter_title("3. Financial Expert Consultation Summary")
             
-            if not chat_history_list:
-                pdf.chapter_body("No consultation history found. Start a conversation in the 'Financial Expert Chat' tab.")
+            # 📢 [NEW] Generate concise summary using AI
+            if chat_history_list:
+                summary_text = generate_chat_summary(chat_history_list, total_spent, impulse_index, high_impulse_cat)
+                pdf.chapter_body(summary_text)
             else:
-                for chat in chat_history_list:
-                    role = "Advisor" if chat['role'] == 'assistant' else "You"
-                    text = chat['content'].replace('\n', ' ').replace('\r', ' ')
-                    pdf.multi_cell(0, 4, f"{role}: {text}", border=0)
-                    pdf.ln(1)
+                pdf.chapter_body("No consultation history found. Start a conversation in the 'Financial Expert Chat' tab.")
             
             # Section 4: Detailed Transaction Data (ALL ITEMS)
             pdf.chapter_title("4. Detailed Transaction History")
