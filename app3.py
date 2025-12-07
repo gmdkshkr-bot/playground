@@ -9,6 +9,8 @@ import plotly.express as px
 import requests
 from google import genai
 from google.genai.types import HarmCategory, HarmBlockThreshold 
+import time 
+from fpdf import FPDF # 📢 PDF 라이브러리 임포트 (fpdf2 설치 필요)
 
 # ----------------------------------------------------------------------
 # 📌 0. Currency Conversion Setup & Globals
@@ -17,13 +19,58 @@ from google.genai.types import HarmCategory, HarmBlockThreshold
 try:
     # 🚨 주의: 이 키들은 Streamlit Secrets에 설정되어 있어야 합니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    EXCHANGE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    EXCHANGE_RATE_API_KEY = st.secrets["EXCHANGE_RATE_API_KEY"] 
+    # 📢 [NEW] 카카오 API 키 로드
+    KAKAO_REST_API_KEY = st.secrets["KAKAO_REST_API_KEY"]
 except KeyError:
-    st.error("❌ Please set 'GEMINI_API_KEY' and 'EXCHANGE_RATE_API_KEY' in Streamlit Secrets.")
+    st.error("❌ Please set 'GEMINI_API_KEY', 'EXCHANGE_RATE_API_KEY', and 'KAKAO_REST_API_KEY' in Streamlit Secrets.")
     st.stop()
 
 # Initialize GenAI client
 client = genai.Client(api_key=API_KEY)
+
+# --- 📢 [UPDATED] Geocoding Helper Function (Kakao API 최적화) ---
+@st.cache_data(ttl=datetime.timedelta(hours=48))
+def geocode_address(address: str) -> tuple[float, float]:
+    """
+    카카오 로컬 API를 사용하여 주소를 위도와 경도로 변환합니다. (Kakao Maps API)
+    """
+    if not address or address == "Manual Input Location" or address == "Imported Location":
+        # 유효하지 않은 주소는 서울 중심의 기본 좌표를 반환
+        return 37.5665, 126.9780
+    
+    # 📢 Kakao Local API 호출 설정
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+    params = {"query": address}
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data and data.get('documents'):
+            # 첫 번째 검색 결과 사용
+            document = data['documents'][0]
+            # Kakao API는 경도(x)를 먼저, 위도(y)를 나중에 반환합니다.
+            lat = float(document.get('y', 0))
+            lon = float(document.get('x', 0))
+            
+            # 유효성 검사
+            if lat != 0 and lon != 0:
+                return lat, lon
+
+    except requests.exceptions.RequestException as e:
+        # API 요청 오류 (네트워크, 4xx, 5xx 오류)
+        # st.sidebar.error(f"❌ Kakao Geocoding API Error for '{address}'. Using fallback: {e}") # 사이드바에 에러가 너무 많이 뜨는 것을 방지
+        pass
+    except Exception as e:
+        # JSON 파싱 등 기타 오류
+        pass
+
+    # 모든 실패 시나리오에서 서울 기본 좌표 반환
+    return 37.5665, 126.9780
+
 
 # 💡 헬퍼 함수: 단일 값을 안전하게 추출하고, 숫자가 아니거나 누락된 경우 0.0을 반환합니다.
 def safe_get_amount(data, key):
@@ -49,6 +96,9 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
     # CSV Import 기록은 메타데이터가 없으므로 임의의 값 또는 기본값을 사용
     current_date = datetime.date.today().strftime('%Y-%m-%d')
     
+    # 📢 [NEW] CSV Import 시 임시 좌표 사용
+    lat, lon = geocode_address("Imported Location")
+    
     summary_data = {
         'id': f"imported-{pd.Timestamp.now().timestamp()}",
         'filename': 'Imported CSV',
@@ -61,7 +111,10 @@ def regenerate_summary_data(item_df: pd.DataFrame) -> dict:
         'Date': current_date, 
         'Location': 'Imported Location', 
         'Original_Total': final_total_krw, 
-        'Original_Currency': 'KRW' 
+        'Original_Currency': 'KRW',
+        # 📢 [NEW] 좌표 추가
+        'latitude': lat,
+        'longitude': lon
     }
     return summary_data
 
@@ -80,7 +133,6 @@ def get_psychological_category(sub_category: str) -> str:
         return PSYCHOLOGICAL_CATEGORIES[3] # Fixed / Essential Cost
     else:
         return PSYCHOLOGICAL_CATEGORIES[2] # Default to Impulse/Loss if unknown
-
 
 
 @st.cache_data(ttl=datetime.timedelta(hours=24))
@@ -135,8 +187,6 @@ def get_exchange_rates():
         return FALLBACK_RATES
 
 
-
-
 def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     """ Converts a foreign currency amount to KRW using stored rates (1 Foreign Unit = X KRW). """
     currency_upper = currency.upper().strip()
@@ -150,10 +200,12 @@ def convert_to_krw(amount: float, currency: str, rates: dict) -> float:
     return amount * rate
 
 # Global Categories (Internal classification names remain Korean for consistency with AI analysis prompt)
-# Global Categories (Updated for professional, detailed analysis)
+# 📢 [MODIFIED] Household Goods 카테고리 세분화
 ALL_CATEGORIES = [
     "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars", 
-    "Groceries", "Household Goods", "Medical & Pharmacy", "Health Supplements",
+    "Groceries", 
+    "Household Essentials", "Beauty & Cosmetics", "Clothing & Fashion", # 📢 세분화된 카테고리
+    "Medical & Pharmacy", "Health Supplements",
     "Education & Books", "Hobby & Skill Dev.", "Public Utilities", "Communication Fees", 
     "Public Transit", "Fuel & Vehicle Maint.", "Parking & Tolls", "Taxi Convenience",
     "Movies & Shows", "Travel & Accommodation", "Games & Digital Goods", 
@@ -170,6 +222,7 @@ PSYCHOLOGICAL_CATEGORIES = [
 
 # --- New Global Variable for Psychological Analysis ---
 # Maps the detailed sub-category to its primary psychological spending nature.
+# 📢 [MODIFIED] SPENDING_NATURE 재매핑
 SPENDING_NATURE = {
     # FIXED / ESSENTIAL (고정/필수)
     "Rent & Mortgage": "Fixed_Essential",
@@ -187,13 +240,15 @@ SPENDING_NATURE = {
     
     # PLANNED CONSUMPTION / VARIABLE (계획적 소비/변동비)
     "Groceries": "Consumption_Planned",
-    "Household Goods": "Consumption_Planned",
+    "Household Essentials": "Consumption_Planned", # 📢 [MODIFIED] 필수 생활용품은 계획 소비로 분류
     "Fuel & Vehicle Maint.": "Consumption_Planned", # Essential Variable
     
     # EXPERIENCE / DISCRETIONARY (경험적/선택적)
     "Dining Out": "Consumption_Experience",
     "Travel & Accommodation": "Consumption_Experience",
     "Movies & Shows": "Consumption_Experience",
+    "Beauty & Cosmetics": "Consumption_Experience", # 📢 [MODIFIED]
+    "Clothing & Fashion": "Consumption_Experience", # 📢 [MODIFIED]
     
     # IMPULSE / LOSS (충동/손실)
     "Casual Dining": "Impulse_Habitual", # 잦은 습관성 소액 지출
@@ -235,7 +290,8 @@ def get_category_guide():
     guide = ""
     categories = {
         "FIXED / ESSENTIAL": ["Rent & Mortgage", "Communication Fees", "Public Utilities", "Public Transit", "Parking & Tolls"],
-        "VARIABLE / CONSUMPTION": ["Groceries", "Household Goods", "Fuel & Vehicle Maint.", "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars"],
+        # 📢 [MODIFIED] 카테고리 가이드 업데이트
+        "VARIABLE / CONSUMPTION": ["Groceries", "Household Essentials", "Beauty & Cosmetics", "Clothing & Fashion", "Fuel & Vehicle Maint.", "Dining Out", "Casual Dining", "Coffee & Beverages", "Alcohol & Bars"],
         "INVESTMENT / ASSET": ["Medical & Pharmacy", "Health Supplements", "Education & Books", "Hobby & Skill Dev.", "Events & Gifts"],
         "DISCRETIONARY / LOSS": ["Travel & Accommodation", "Movies & Shows", "Games & Digital Goods", "Taxi Convenience", "Fees & Penalties", "Unclassified"],
     }
@@ -274,7 +330,7 @@ with st.sidebar:
     1. **Upload / Manual Input:** Enter spending data via receipt image or manual form.
     2. **Analyze & Accumulate:** Results are added to the cumulative record.
     3. **Review & Chat:** Check the integrated report, spending charts, and get personalized financial advice.
-    4. **Export & Continue:** Export the current record in CSV, load the CSV to continue recording.
+    4. **Report Generation:** Generate a comprehensive PDF report based on analysis and chat history.
     """)
     
     st.markdown("---")
@@ -304,21 +360,19 @@ def analyze_receipt_with_gemini(_image: Image.Image):
     1. store_name: Store Name (text)
     2. date: Date (YYYY-MM-DD format). **If not found, use YYYY-MM-DD format based on today's date.**
     3. store_location: Store location/address (text). **If not found, use "Seoul".**
-    4. total_amount: Final amount settled/paid via card or cash (numbers only, no commas). **Must match the '합계' (Total) or final payment amount (e.g., 19,400).** 
-    5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). Must be 0 if not present.
+    4. total_amount: Final amount settled/paid via card or cash (numbers only, no commas). **CRITICAL: You MUST extract the FINAL '합계' (Total) amount settled by the customer, which reflects tax and discount.** 5. tax_amount: Tax or VAT amount recognized on the receipt (numbers only, no commas). Must be 0 if not present.
     6. tip_amount: Tip amount recognized on the receipt (numbers only, no commas). Must be 0 if not present.
-    7. discount_amount: Total discount amount applied to the entire receipt (numbers only, no commas). Must be 0 if not present.
+    7. discount_amount: Total discount amount applied to the entire receipt (numbers only, no commas). **CRITICAL: Extract this as a POSITIVE number (e.g., if the discount is -18,000 KRW, output 18000). Must be 0 if not present.**
     8. currency_unit: Official currency code shown on the receipt (e.g., KRW, USD, EUR).
     9. items: List of purchased items. Each item must include:
         - name: Item Name (text)
-        - price: Unit Price (numbers only, no commas). **This must be the final, VAT-INCLUSIVE price displayed next to the item name.** 
-        - quantity: Quantity (numbers only)
+        - price: Unit Price (numbers only, no commas). **This must be the final, VAT-INCLUSIVE price displayed next to the item name (before final discount allocation).** - quantity: Quantity (numbers only)
         - category: The most appropriate **Detailed Sub-Category** for this item, which must be **automatically classified** by you.
     
     **Classification Guide (Choose ONE sub-category for 'category' field):**
     - **FIXED / ESSENTIAL:** Rent & Mortgage, Communication Fees, Public Utilities, Public Transit, Fuel & Vehicle Maint., Parking & Tolls
-    - **VARIABLE / CONSUMPTION (Planned):** Groceries, Household Goods
-    - **VARIABLE / CONSUMPTION (Experience):** Dining Out, Travel & Accommodation, Movies & Shows
+    - **VARIABLE / CONSUMPTION (Planned):** Groceries, Household Essentials # 📢 수정됨
+    - **VARIABLE / CONSUMPTION (Experience):** Dining Out, Travel & Accommodation, Movies & Shows, Beauty & Cosmetics, Clothing & Fashion # 📢 수정됨
     - **INVESTMENT / ASSET:** Medical & Pharmacy, Health Supplements, Education & Books, Hobby & Skill Dev., Events & Gifts
     - **IMPULSE / LOSS:** Casual Dining, Coffee & Beverages, Alcohol & Bars, Games & Digital Goods, Taxi Convenience, Fees & Penalties, Unclassified
         
@@ -360,7 +414,6 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     """
     Generates an AI analysis report based on aggregated spending data and detailed items.
     """
-    # ... (기존 코드 유지)
     # 🌟 추가/수정: summary_df를 문자열로 변환하여 summary_text 변수 정의
     summary_text = summary_df.to_string(index=False)
 
@@ -387,7 +440,6 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     4. **CRITICAL:** When mentioning the total spending amount in the analysis, **you must include the currency unit** (e.g., "Total spending of 1,500,000 KRW").
     """
     
-
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -398,12 +450,74 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     except Exception as e:
         return "Failed to generate analysis report."
 
+# 📢 [NEW] PDF 생성 클래스 (fpdf2 기반)
+class PDF(FPDF):
+    def header(self):
+        # 📢 [FIX] Nanum Gothic으로 폰트 설정
+        self.set_font('Nanum', 'B', 15)
+        self.cell(0, 10, 'Personal Spending Analysis Report', 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Nanum', '', 8) # 📢 [FIX] 이탤릭('I') 제거
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    def chapter_title(self, title):
+        # 📢 [FIX] title 인자를 받도록 정의 수정
+        self.set_font('Nanum', 'B', 12)
+        self.set_fill_color(220, 220, 220)
+        self.cell(0, 6, title, 0, 1, 'L', 1)
+        self.ln(4)
+
+    def chapter_body(self, body):
+        self.set_font('Nanum', '', 10)
+        self.multi_cell(0, 5, body)
+        self.ln()
+
+    def add_table(self, data: pd.DataFrame, header_titles: list):
+        self.set_font('Nanum', 'B', 8)
+        
+        # 📢 [FIX] 테이블 너비 자동 계산 (PDF 너비 190mm 기준)
+        num_cols = len(header_titles)
+        col_width = 190 / num_cols
+        
+        # Header
+        for i, title in enumerate(header_titles):
+            self.cell(col_width, 7, title, 1, 0, 'C')
+        self.ln()
+
+        # Data rows
+        self.set_font('Nanum', '', 8)
+        for _, row in data.iterrows():
+            row_list = [str(item) for item in row.iloc[:len(header_titles)]]
+            
+            # 셀 내용이 너무 길어지지 않도록 조정 (테이블 레이아웃 유지)
+            row_list = [item[:25] if len(item) > 25 else item for item in row_list]
+            
+            for i, item in enumerate(row_list):
+                self.cell(col_width, 6, item, 1, 0, 'C')
+            self.ln()
+
+
+# 📢 [NEW] 폰트 로딩을 캐시하는 함수 (FPDFException 방지)
+@st.cache_resource
+def load_pdf_fonts(pdf_instance):
+    """Nanum 폰트를 FPDF에 등록하며, 실패 시 False를 반환합니다."""
+    try:
+         # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
+         pdf_instance.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
+         pdf_instance.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
+         return True
+    except Exception as e:
+         return False 
+
 
 # ----------------------------------------------------------------------
 # 📌 4. Streamlit UI: Tab Setup (Translated)
 # ----------------------------------------------------------------------
 
-tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
+tab1, tab2, tab3 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat", "📄 PDF Report"])
 
 
 # ======================================================================
@@ -411,72 +525,70 @@ tab1, tab2 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat"])
 # ======================================================================
 with tab1:
     
-    # 💡 신규 기능: CSV 파일 업로드 섹션 시작
-    st.subheader("📁 Load Previous Record (CSV Upload)")
+    # --- 📢 [NEW] CSV/Image Upload Section (Parallel Columns) ---
+    st.subheader("📁 Data Input & AI Analysis")
     
-    # 파일을 불러온 후, 처리 상태를 저장할 임시 키
-    if 'csv_load_triggered' not in st.session_state:
-        st.session_state.csv_load_triggered = False
+    col_csv, col_img = st.columns(2)
+    
+    # 1. CSV Upload Section (Left Column)
+    with col_csv:
+        st.markdown("**Load Previous Record (CSV Upload)**")
         
-    uploaded_csv_file = st.file_uploader(
-        "Upload a previously downloaded ledger CSV file (e.g., record_YYYYMMDD.csv)",
-        type=['csv'],
-        accept_multiple_files=False,
-        key='csv_uploader', 
-        # 💡 on_change 콜백 함수를 사용하여 파일이 업로드되면 플래그를 True로 설정
-        on_change=lambda: st.session_state.__setitem__('csv_load_triggered', True)
-    )
+        # 파일을 불러온 후, 처리 상태를 저장할 임시 키
+        if 'csv_load_triggered' not in st.session_state:
+            st.session_state.csv_load_triggered = False
+            
+        uploaded_csv_file = st.file_uploader(
+            "Upload a previously downloaded ledger CSV file",
+            type=['csv'],
+            accept_multiple_files=False,
+            key='csv_uploader', 
+            on_change=lambda: st.session_state.__setitem__('csv_load_triggered', True)
+        )
 
-    # 💡 로직 분리: 파일이 업로드되었고, 아직 처리되지 않았다면 처리 시작
-    if st.session_state.csv_load_triggered and uploaded_csv_file is not None:
-        
-        st.session_state.csv_load_triggered = False # 재실행 방지를 위해 즉시 초기화
-        
-        try:
-            # CSV 파일을 DataFrame으로 읽기
-            imported_df = pd.read_csv(uploaded_csv_file)
+        # 💡 로직 분리: 파일이 업로드되었고, 아직 처리되지 않았다면 처리 시작
+        if st.session_state.csv_load_triggered and uploaded_csv_file is not None:
             
-            # 필수 컬럼 검증
-            required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+            st.session_state.csv_load_triggered = False # 재실행 방지를 위해 즉시 초기화
             
-            if not all(col in imported_df.columns for col in required_cols):
-                st.error("❌ 업로드된 CSV 파일에 필수 컬럼이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
-            else:
-                # 1. 아이템 목록에 추가
-                st.session_state.all_receipts_items.append(imported_df)
+            try:
+                # CSV 파일을 DataFrame으로 읽기
+                imported_df = pd.read_csv(uploaded_csv_file)
                 
-                # 2. Summary 데이터 재구성 및 추가
-                summary_data = regenerate_summary_data(imported_df)
-                if summary_data:
-                    st.session_state.all_receipts_summary.append(summary_data)
-                    st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
-                    
-                    # 💡 파일 업로드 위젯의 값 자체를 None으로 만드는 대신, 위젯 키를 초기화하는 콜백을 호출 (재실행 유발)
-                    # 여기서는 성공했으므로 st.rerun()을 호출하여 화면에 반영합니다.
-                    # ⚠️ 파일 업로더의 상태를 수동으로 None으로 설정하는 것은 위에서 언급한 오류를 유발하므로,
-                    #    가장 간단하게는 재실행 후 위젯이 다시 그려지면서 초기화되도록 유도합니다.
-                    
-                    # 파일 업로더가 다시 None으로 돌아가도록 돕기 위해, 임시 컨테이너를 사용하거나
-                    # st.rerun()을 바로 호출하여 새로운 프레임에서 위젯이 None으로 다시 그려지도록 합니다.
-                    st.rerun()
+                # 필수 컬럼 검증
+                required_cols = ['Item Name', 'Unit Price', 'Quantity', 'AI Category', 'Total Spend', 'Currency', 'KRW Total Spend']
+                
+                if not all(col in imported_df.columns for col in required_cols):
+                    st.error("❌ 업로드된 CSV 파일에 필수 컬럼이 부족합니다. 올바른 형식의 파일을 업로드해주세요.")
                 else:
-                    st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
-            
-        except Exception as e:
-            st.error(f"❌ CSV 파일을 처리하는 중 오류가 발생했습니다: {e}")
-            
-            
-    st.markdown("---")
-    # 💡 신규 기능: CSV 파일 업로드 섹션 끝
-    
-    # --- File Uploader and Analysis ---
-    st.subheader("📸 Upload Receipt Image (AI Analysis)")
-    uploaded_file = st.file_uploader(
-        "Upload one receipt image (jpg, png) at a time. (Data will accumulate in the current session)", 
-        type=['jpg', 'png', 'jpeg'],
-        accept_multiple_files=False 
-    )
+                    # 1. 아이템 목록에 추가
+                    st.session_state.all_receipts_items.append(imported_df)
+                    
+                    # 2. Summary 데이터 재구성 및 추가
+                    summary_data = regenerate_summary_data(imported_df)
+                    if summary_data:
+                        st.session_state.all_receipts_summary.append(summary_data)
+                        st.success(f"🎉 CSV 파일 **{uploaded_csv_file.name}**의 기록 (**{len(imported_df)}개 아이템**)이 성공적으로 불러와져 누적되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("❌ CSV 파일에서 Summary 데이터를 재구성하는 데 실패했습니다.")
+                
+            except Exception as e:
+                st.error(f"❌ CSV 파일을 처리하는 중 오류가 발생했습니다: {e}")
 
+    # 2. Image Upload Section (Right Column)
+    with col_img:
+        st.markdown("**Upload Receipt Image (AI Analysis)**")
+        uploaded_file = st.file_uploader(
+            "Upload one receipt image (jpg, png) at a time.", 
+            type=['jpg', 'png', 'jpeg'],
+            accept_multiple_files=False,
+            key='receipt_uploader' # CSV Uploader와 키 충돌 방지
+        )
+
+
+    st.markdown("---")
+    # --- 📢 [NEW] CSV/Image Upload Section End ---
 
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}-{uploaded_file.size}"
@@ -485,6 +597,7 @@ with tab1:
         existing_summary = next((s for s in st.session_state.all_receipts_summary if s.get('id') == file_id), None)
         is_already_analyzed = existing_summary is not None
         
+        # UI 레이아웃 변경 (이미지 표시 및 분석 결과)
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("🖼️ Uploaded Receipt")
@@ -572,61 +685,82 @@ with tab1:
                             # 위치 기본값: 유효하지 않거나 빈 문자열이면 "Seoul" 사용
                             final_location = store_location_str if store_location_str else "Seoul"
 
-                            # --- Main Information Display ---
-                            st.success("✅ Analysis Complete! Check the ledger data below.")
                             
-                            st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
-                            st.markdown(f"**📍 Location:** {final_location}") 
-                            st.markdown(f"**📅 Date:** {final_date}") 
-                            st.subheader(f"💰 Total Amount Paid: {total_amount:,.0f} {display_unit}")
-
-                            if discount_amount > 0:
-                                discount_display = f"{discount_amount:,.2f} {display_unit}"
-                                st.markdown(f"**🎁 Total Discount:** {discount_display}") # ⬅️ **[추가: 할인액 표시]**
-
-                            
-                            # 💡 세금/팁 정보 표시
-                            if tax_amount > 0 or tip_amount > 0:
-                                tax_display = f"{tax_amount:,.2f} {display_unit}"
-                                tip_display = f"{tip_amount:,.2f} {display_unit}"
-                                st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
-                            
-                            # 💡 Display Applied Exchange Rate for AI Analysis
-                            if display_unit != 'KRW':
-                                applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
-                                st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
-                                
-                            st.markdown("---")
-
-
+                            # --- 📢 [NEW] 금액 검증 및 덮어쓰기 로직 시작 (OVRRIDE) ---
+                            # 1. 아이템 데이터프레임 생성 및 기본 계산
                             if 'items' in receipt_data and receipt_data['items']:
                                 items_df = pd.DataFrame(receipt_data['items'])
                                 
                                 items_df.columns = ['Item Name', 'Unit Price', 'Quantity', 'AI Category']
                                 items_df['Unit Price'] = pd.to_numeric(items_df['Unit Price'], errors='coerce').fillna(0)
                                 items_df['Quantity'] = pd.to_numeric(items_df['Quantity'], errors='coerce').fillna(1)
-                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
                                 
+                                # 2. 아이템 원가 총합 (할인 적용 전, Tax 포함) 계산
+                                calculated_original_total = (items_df['Unit Price'] * items_df['Quantity']).sum()
+                                total_discount = safe_get_amount(receipt_data, 'discount_amount') 
+                                
+                                # 3. 아이템 합계를 기반으로 최종 지불액 재계산 (이론적 합계)
+                                calculated_final_total = calculated_original_total - total_discount
+                                
+                                # 4. AI가 추출한 total_amount와 비교하여 덮어쓰기
+                                # 오차 허용 범위: 100원
+                                if abs(calculated_final_total - total_amount) > 100 and calculated_final_total > 0:
+                                    st.warning(
+                                        f"⚠️ AI 추출 총액({total_amount:,.0f} {display_unit})이 아이템 합계({calculated_final_total:,.0f} {display_unit})와 크게 다릅니다. "
+                                        f"**아이템 합계로 총액을 교정합니다.**"
+                                    )
+                                    # AI가 잘못 읽은 total_amount를 아이템 합계로 덮어씁니다.
+                                    total_amount = calculated_final_total
+                                
+                                # --- 📢 [NEW] 금액 검증 및 덮어쓰기 로직 종료 ---
+                            
+                                
+                                # --- Main Information Display ---
+                                st.success("✅ Analysis Complete! Check the ledger data below.")
+                                
+                                st.markdown(f"**🏠 Store Name:** {receipt_data.get('store_name', 'N/A')}")
+                                st.markdown(f"**📍 Location:** {final_location}") 
+                                st.markdown(f"**📅 Date:** {final_date}") 
+                                # 교정된 total_amount를 표시합니다.
+                                st.subheader(f"💰 Total Amount Paid (Corrected): {total_amount:,.0f} {display_unit}")
+
+                                if discount_amount > 0:
+                                    discount_display = f"{discount_amount:,.2f} {display_unit}"
+                                    st.markdown(f"**🎁 Total Discount:** {discount_display}") 
+
+                                
+                                # 💡 세금/팁 정보 표시
+                                if tax_amount > 0 or tip_amount > 0:
+                                    tax_display = f"{tax_amount:,.2f} {display_unit}"
+                                    tip_display = f"{tip_amount:,.2f} {display_unit}"
+                                    st.markdown(f"**🧾 Tax/VAT:** {tax_display} | **💸 Tip:** {tip_display}")
+                                
+                                # 💡 Display Applied Exchange Rate for AI Analysis
+                                if display_unit != 'KRW':
+                                    applied_rate = EXCHANGE_RATES.get(display_unit, 1.0)
+                                    st.info(f"**📢 Applied Exchange Rate:** 1 {display_unit} = {applied_rate:,.4f} KRW (Rate fetched from API/Fallback)")
+                                    
+                                st.markdown("---")
+
                                 # 📢 할인 안분(Allocation) 로직 시작! - 로직 안정화 (Robust Initialization)
-                                
-                                # 🌟 1단계: 모든 품목에 대해 할인액 0, 최종 지출액을 원가로 초기 설정
-                                # 이렇게 하면 discount_amount가 0일 때도 Total Spend 컬럼이 안전하게 정의됩니다.
+                                # items_df는 이제 `calculated_original_total`이 계산된 상태입니다.
+                                items_df['Total Spend Original'] = items_df['Unit Price'] * items_df['Quantity']
                                 items_df['Discount Applied'] = 0.0
                                 items_df['Total Spend'] = items_df['Total Spend Original']
                                 
                                 total_item_original = items_df['Total Spend Original'].sum()
                                 
                                 # 🌟 2단계: 할인이 있을 경우에만 재계산
-                                if discount_amount > 0 and total_item_original > 0:
+                                # total_discount는 AI가 추출한 양수 값입니다.
+                                if total_discount > 0 and total_item_original > 0:
                                     # 할인 비율 계산: 품목 원가 총합 대비 할인액 비율
-                                    discount_rate = discount_amount / total_item_original
+                                    discount_rate = total_discount / total_item_original
                                     
                                     # 품목별 할인액 계산 및 실제 지출액 (Total Spend)으로 업데이트
                                     items_df['Discount Applied'] = items_df['Total Spend Original'] * discount_rate
                                     items_df['Total Spend'] = items_df['Total Spend Original'] - items_df['Discount Applied']
-                                    st.info(f"💡 Discount of {discount_amount:,.0f} {display_unit} successfully allocated across items.")
+                                    st.info(f"💡 Discount of {total_discount:,.0f} {display_unit} successfully allocated across items.")
                                 else:
-                                    # 할인이 없거나 계산이 불가능한 경우, 초기화된 값 (Total Spend = Total Spend Original)을 그대로 사용
                                     pass
                                     
                                 # 📢 할인 안분 로직 종료. Total Spend는 이제 할인이 반영된 금액입니다.
@@ -644,16 +778,13 @@ with tab1:
                                             options=ALL_CATEGORIES,
                                             required=True,
                                         ),
-                                        # 💡 사용자가 직접 Total Spend를 수정하는 것을 막기 위해 disabled 처리 유지
                                     },
-                                    # Total Spend는 이제 할인이 반영된 값이므로 disabled에서 해제할 필요는 없습니다.
                                     disabled=['Item Name', 'Unit Price', 'Quantity'], 
                                     hide_index=True,
                                     use_container_width=True
                                 )
                                 
                                 # 📢 할인 안분 로직을 통과한 'Total Spend' 컬럼을 다시 edited_df에 합칩니다.
-                                # edited_df는 st.data_editor의 결과이므로, items_df에서 필요한 컬럼을 복사합니다.
                                 edited_df['Total Spend'] = items_df['Total Spend']
                                 edited_df['Total Spend Numeric'] = pd.to_numeric(edited_df['Total Spend'], errors='coerce').fillna(0)
                                 edited_df['Currency'] = display_unit
@@ -669,6 +800,10 @@ with tab1:
                                 # 💡 세금과 팁도 원화로 환산
                                 krw_tax_total = convert_to_krw(tax_amount, display_unit, EXCHANGE_RATES) 
                                 krw_tip_total = convert_to_krw(tip_amount, display_unit, EXCHANGE_RATES)
+                                
+                                # 📢 [NEW] 위치 정보에 대한 좌표 추출
+                                # geocode_address_placeholder 대신 실제 API 호출 함수를 사용합니다.
+                                lat, lon = geocode_address(final_location)
                                 
                                 # ** Accumulate Data: Store the edited DataFrame **
                                 st.session_state.all_receipts_items.append(edited_df)
@@ -686,8 +821,11 @@ with tab1:
                                     'Currency': 'KRW', 
                                     'Date': final_date, 
                                     'Location': final_location, 
-                                    'Original_Total': total_amount, 
-                                    'Original_Currency': display_unit 
+                                    'Original_Total': total_amount, # 교정된 total_amount 사용
+                                    'Original_Currency': display_unit,
+                                    # 📢 [NEW] 좌표 추가
+                                    'latitude': lat,
+                                    'longitude': lon
                                 })
 
                                 st.success(f"🎉 Data from {uploaded_file.name} successfully added (Converted to KRW)!")
@@ -729,8 +867,8 @@ with tab1:
             
         with col_m3:
             manual_category = st.selectbox("📌 Category (Sub-Category)", 
-                                options=ALL_CATEGORIES, 
-                                index=ALL_CATEGORIES.index('Unclassified'))
+                                 options=ALL_CATEGORIES, 
+                                 index=ALL_CATEGORIES.index('Unclassified'))
             manual_currency = st.selectbox("Currency Unit", options=['KRW', 'USD', 'EUR', 'JPY'], index=0)
             manual_location = st.text_input("📍 Location/City", placeholder="e.g., Gangnam, Seoul") 
             
@@ -743,6 +881,11 @@ with tab1:
                 krw_total = convert_to_krw(manual_amount, manual_currency, EXCHANGE_RATES)
                 applied_rate = EXCHANGE_RATES.get(manual_currency, 1.0)
 
+                # 📢 [NEW] 위치 정보에 대한 좌표 추출
+                final_location = manual_location if manual_location else "Manual Input Location"
+                # geocode_address_placeholder 대신 실제 API 호출 함수를 사용합니다.
+                lat, lon = geocode_address(final_location)
+                
                 # 1. Prepare Item DataFrame 
                 manual_df = pd.DataFrame([{
                     'Item Name': manual_description,
@@ -764,9 +907,12 @@ with tab1:
                     'Tip_KRW': 0.0, 
                     'Currency': 'KRW', 
                     'Date': manual_date.strftime('%Y-%m-%d'),
-                    'Location': manual_location if manual_location else "Manual Input Location", 
+                    'Location': final_location, 
                     'Original_Total': manual_amount, 
-                    'Original_Currency': manual_currency 
+                    'Original_Currency': manual_currency,
+                    # 📢 [NEW] 좌표 추가
+                    'latitude': lat,
+                    'longitude': lon
                 }
                 
                 # 3. Accumulate Data
@@ -822,6 +968,11 @@ with tab1:
             summary_df['Tip_KRW'] = 0.0
         if 'Location' not in summary_df.columns:
             summary_df['Location'] = 'N/A'
+        # 📢 [NEW] 좌표 컬럼 호환성 확보
+        if 'latitude' not in summary_df.columns:
+            summary_df['latitude'] = 37.5665
+        if 'longitude' not in summary_df.columns:
+            summary_df['longitude'] = 126.9780
             
         # Conditional formatting for Amount Paid
         def format_amount_paid(row):
@@ -838,11 +989,11 @@ with tab1:
         
         summary_df = summary_df.drop(columns=['id'])
         # 💡 Location 컬럼을 추가하여 표시
-        summary_df = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
-        summary_df.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
+        summary_df_display = summary_df[['Date', 'Store', 'Location', 'Amount Paid', 'Tax_KRW', 'Tip_KRW', 'filename']] 
+        summary_df_display.columns = ['Date', 'Store', 'Location', 'Amount Paid', 'Tax (KRW)', 'Tip (KRW)', 'Source'] 
 
         st.dataframe(
-            summary_df, 
+            summary_df_display, 
             use_container_width=True, 
             hide_index=True,
             column_config={
@@ -857,6 +1008,66 @@ with tab1:
             }
         )
         
+        st.markdown("---")
+        
+        # 📢 [NEW] Spending Trend and Map Visualization in Parallel
+        col_trend, col_map = st.columns(2)
+        
+        with col_trend:
+            # --- Spending Trend Over Time Chart (KRW based) ---
+            st.subheader("📈 Spending Trend Over Time")
+            
+            summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
+            
+            if not summary_df_raw.empty:
+                
+                summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
+                summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
+                
+                daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
+                daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
+                daily_spending.columns = ['Date', 'Daily Total Spend']
+                
+                if not daily_spending.empty:
+                    fig_trend = px.line(
+                        daily_spending, x='Date', y='Daily Total Spend',
+                        title=f'Daily Spending Trend (Unit: {display_currency_label})',
+                        labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
+                        markers=True
+                    )
+                    fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
+                    st.plotly_chart(fig_trend, use_container_width=True)
+                else:
+                    st.warning("Date data is not available or not properly formatted to show the trend chart.")
+        
+        with col_map:
+            # --- Spending Map Visualization Section ---
+            st.subheader("📍 Spending Map Visualization")
+            
+            map_df = summary_df.copy()
+            # st.map은 'lat'과 'lon' 컬럼을 기대합니다.
+            map_df.columns = [col.replace('latitude', 'lat').replace('longitude', 'lon') for col in map_df.columns]
+    
+            if not map_df.empty and 'lat' in map_df.columns and 'lon' in map_df.columns:
+                
+                map_data = map_df[map_df['Total'] > 0].dropna(subset=['lat', 'lon'])
+                
+                if not map_data.empty:
+                    st.map(
+                        map_data, 
+                        latitude='lat', 
+                        longitude='lon', 
+                        color='#ff6347', # 산호색
+                        zoom=11, 
+                        use_container_width=True
+                    )
+                
+                else:
+                    st.warning("유효한 좌표 정보가 있는 지출 기록이 없어 지도를 표시할 수 없습니다.")
+            else:
+                st.warning("위치 정보가 없거나 좌표 컬럼이 유효하지 않아 지도를 표시할 수 없습니다.")
+
+
         st.markdown("---")
         
         st.subheader("🛒 Integrated Detail Items") 
@@ -881,8 +1092,10 @@ with tab1:
         category_summary.columns = ['Category', 'Amount']
         
         # 💡 세금과 팁도 별도의 카테고리로 합산하여 표시
-        total_tax_krw = summary_df['Tax (KRW)'].sum()
-        total_tip_krw = summary_df['Tip (KRW)'].sum()
+        # 📢 [FIX] 'Tax (KRW)' 대신 실제 컬럼 이름인 'Tax_KRW'를 사용합니다.
+        total_tax_krw = summary_df['Tax_KRW'].sum()
+        # 📢 [FIX] 'Tip (KRW)' 대신 실제 컬럼 이름인 'Tip_KRW'를 사용합니다.
+        total_tip_krw = summary_df['Tip_KRW'].sum()
         
         if total_tax_krw > 0:
             category_summary.loc[len(category_summary)] = ['세금/부가세 (Tax/VAT)', total_tax_krw]
@@ -916,51 +1129,6 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No spending data found to generate the pie chart.")
-
-        # --- Spending Trend Over Time Chart (KRW based) ---
-        st.markdown("---")
-        st.subheader("📈 Spending Trend Over Time")
-        
-        summary_df_raw = pd.DataFrame(st.session_state.all_receipts_summary)
-        
-        if not summary_df_raw.empty:
-            
-            summary_df_raw['Date'] = pd.to_datetime(summary_df_raw['Date'], errors='coerce')
-            summary_df_raw['Total'] = pd.to_numeric(summary_df_raw['Total'], errors='coerce') 
-            
-            daily_spending = summary_df_raw.dropna(subset=['Date', 'Total'])
-            daily_spending = daily_spending.groupby('Date')['Total'].sum().reset_index()
-            daily_spending.columns = ['Date', 'Daily Total Spend']
-            
-            if not daily_spending.empty:
-                fig_trend = px.line(
-                    daily_spending, x='Date', y='Daily Total Spend',
-                    title=f'Daily Spending Trend (Unit: {display_currency_label})',
-                    labels={'Daily Total Spend': f'Total Spend ({display_currency_label})', 'Date': 'Date'},
-                    markers=True
-                )
-                fig_trend.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-                st.plotly_chart(fig_trend, use_container_width=True)
-            else:
-                st.warning("Date data is not available or not properly formatted to show the trend chart.")
-        
-        # 3. Generate AI Analysis Report
-        st.markdown("---")
-        st.subheader("🤖 AI Expert's Analysis Summary")
-        
-        total_spent = category_summary['Amount'].sum()
-        detailed_items_for_ai = all_items_df_numeric[['AI Category', 'Item Name', 'KRW Total Spend']]
-        items_text = detailed_items_for_ai.to_string(index=False)
-        
-        ai_report = generate_ai_analysis(
-            summary_df=category_summary.reset_index(drop=True),
-            store_name="Multiple Stores",
-            total_amount=total_spent,
-            currency_unit=display_currency_label, 
-            detailed_items_text=items_text
-        )
-        
-        st.info(ai_report)
         
         # 4. Reset and Download Buttons
         st.markdown("---")
@@ -983,7 +1151,7 @@ with tab1:
             st.rerun() 
 
 # ======================================================================
-# 		 	TAB 2: FINANCIAL EXPERT CHAT
+# 		 	TAB 2: FINANCIAL EXPERT CHAT (수정됨)
 # ======================================================================
 with tab2:
     st.header("💬 Financial Expert Chat")
@@ -992,23 +1160,19 @@ with tab2:
         st.warning("Please analyze at least one receipt or load a CSV in the 'Analysis & Tracking' tab before starting a consultation.")
     else:
         # --- 🌟 Chat History Reset Logic (Fix 2) 🌟 ---
-        # 현재 영수증 기록을 기반으로 해시 생성
-        # all_receipts_summary의 'id' 목록으로 데이터 변경 여부를 감지합니다.
         current_data_hash = hash(tuple(item['id'] for item in st.session_state.all_receipts_summary))
         
-        # 데이터가 변경되었는지 확인
         if 'last_data_hash' not in st.session_state or st.session_state.last_data_hash != current_data_hash:
-            # 데이터가 변경된 경우, 채팅 기록과 해시를 리셋합니다.
             st.session_state.chat_history = []
             st.session_state.last_data_hash = current_data_hash
             st.info("📊 새로운 지출 내역이 감지되었습니다. 신선한 분석을 위해 채팅 기록이 초기화됩니다.")
+        
         all_items_df = pd.concat(st.session_state.all_receipts_items, ignore_index=True)
         
-        # Defensive check for KRW Total Spend column
         if 'KRW Total Spend' not in all_items_df.columns:
-              all_items_df['KRW Total Spend'] = all_items_df.apply(
-                  lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
-              )
+             all_items_df['KRW Total Spend'] = all_items_df.apply(
+                 lambda row: convert_to_krw(row['Total Spend'], row['Currency'], EXCHANGE_RATES), axis=1
+             )
 
         # 1. Add Psychological Category to the detailed DataFrame
         all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
@@ -1021,19 +1185,14 @@ with tab2:
         summary_df_for_chat = pd.DataFrame(st.session_state.all_receipts_summary)
         
         tax_tip_only_total = 0.0
-        # 🚨 CRITICAL FIX: Tax_KRW를 합산하는 로직을 제거하고 Tip_KRW만 합산합니다.
-        # if 'Tax_KRW' in summary_df_for_chat.columns:
-        #     tax_tip_only_total += summary_df_for_chat['Tax_KRW'].sum() # <-- 이 부분을 반드시 삭제해야 합니다.
         
         if 'Tip_KRW' in summary_df_for_chat.columns:
             tax_tip_only_total += summary_df_for_chat['Tip_KRW'].sum() # Tip만 합산합니다.
         
         # Add Tip (Only) to the 'Fixed / Essential Cost' category
         if tax_tip_only_total > 0:
-            # Find or create the Fixed / Essential Cost entry
             fixed_cost_index = psychological_summary[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[3]].index
             if not fixed_cost_index.empty:
-                # Tip만 Fixed Cost에 합산
                 psychological_summary.loc[fixed_cost_index[0], 'KRW Total Spend'] += tax_tip_only_total 
             else:
                 new_row = pd.DataFrame([{'Category': PSYCHOLOGICAL_CATEGORIES[3], 'KRW Total Spend': tax_tip_only_total}])
@@ -1041,23 +1200,49 @@ with tab2:
 
         total_spent = psychological_summary['KRW Total Spend'].sum()
         
-        # Calculate the Impulse Spending Index
+        # 📢 [NEW] 정교한 충동 지수 계산 로직
         impulse_spending = psychological_summary.loc[psychological_summary['Category'] == PSYCHOLOGICAL_CATEGORIES[2], 'KRW Total Spend'].sum()
-        impulse_index = impulse_spending / total_spent if total_spent > 0 else 0.0
+        
+        total_transactions = len(all_items_df)
+        impulse_transactions = len(all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]])
+        
+        if total_spent > 0 and total_transactions > 0:
+            # 1. 금액 기반 비율
+            amount_ratio = impulse_spending / total_spent
+            # 2. 빈도 기반 비율 (충동 지출이 전체 거래에서 차지하는 비중의 제곱근)
+            frequency_ratio_factor = np.sqrt(impulse_transactions / total_transactions)
+            
+            # 3. 최종 정교화된 지수 (금액 비율 * 빈도 가중치)
+            impulse_index = amount_ratio * frequency_ratio_factor
+        else:
+            impulse_index = 0.0
+        # 📢 [NEW] 정교한 충동 지수 계산 로직 종료
         
         psychological_summary_text = psychological_summary.to_string(index=False)
         
-        # Prepare detailed item data for the chatbot's system instruction
+        # 📢 [NEW] 대안 추천 로직을 위한 최고 충동 지출 카테고리/항목 계산
+        highest_impulse_category = ""
+        highest_impulse_amount = 0
+        
+        impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
+        
+        if not impulse_items_df.empty:
+            impulse_category_sum = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
+            if not impulse_category_sum.empty:
+                highest_impulse_category = impulse_category_sum.idxmax()
+                highest_impulse_amount = impulse_category_sum.max()
+        
         detailed_items_for_chat = all_items_df[['Psychological Category', 'Item Name', 'KRW Total Spend']]
         items_text_for_chat = detailed_items_for_chat.to_string(index=False)
         
         # MODIFIED SYSTEM INSTRUCTION (CRITICAL)
+        # 📢 [MODIFIED] Alternative Recommendation Task에 효용 최적화 지침 추가
         system_instruction = f"""
         You are a supportive, friendly, and highly knowledgeable Financial Psychologist and Advisor. Your role is to analyze the user's spending habits from a **psychological and behavioral economics perspective**, and provide personalized advice on overcoming impulse spending and optimizing happiness per won. Your tone should be consistently polite and helpful, like a professional mentor.
         
         The user's cumulative spending data for the current session (All converted to KRW) is analyzed by its **Psychological Spending Nature**:
         - **Total Accumulated Spending**: {total_spent:,.0f} KRW
-        - **Calculated Impulse Spending Index**: {impulse_index:.2f} (Target: < 0.20)
+        - **Calculated Impulse Spending Index (Refined)**: {impulse_index:.2f} (Target: < 0.15 for Refined Index)
         - **Psychological Category Breakdown (Category, Amount)**:
         {psychological_summary_text}
         
@@ -1066,31 +1251,41 @@ with tab2:
         {items_text_for_chat}
         ---
 
-        Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
+        --- Alternative Recommendation Task (NEW - Utility Optimization) ---
+        The user's highest impulse/loss spending is in the **'{highest_impulse_category}'** category, amounting to **{highest_impulse_amount:,.0f} KRW**.
+        
+        When the user asks for alternatives or efficiency advice, you MUST prioritize and perform the following:
+        1. Identify the core utility (e.g., comfort, energy, pleasure, time-saving, social belonging) the user gains from spending on **'{highest_impulse_category}'** or a specific high-frequency impulse item.
+        2. Propose 2-3 specific, actionable, and low-cost alternatives that satisfy the *same core utility* while aiming to **reduce the expense by at least 30%**.
+        3. Examples of alternatives: *Home-brewed coffee for routine, pre-planning walking route instead of taxi, frozen meal kit instead of dining out.*
+
+        Base all your advice and responses on this data. Your analysis MUST start with a professional interpretation of the **Impulse Spending Index (Refined)**. Provide actionable, psychological tips to convert 'Impulse Loss' spending into 'Investment/Asset' spending. Always include the currency unit (KRW) when referring to monetary amounts.
         """
 
         # 💡 초기 메시지 추가 (UX 개선)
         if not st.session_state.chat_history or (len(st.session_state.chat_history) == 1 and st.session_state.chat_history[0]["content"].startswith("안녕하세요! 저는 귀하의 지출 패턴을 분석하는")):
-             # 챗 기록이 없거나, 이전 버전의 초기 메시지만 있을 경우 재설정
-             st.session_state.chat_history = []
-             initial_message = f"""
-            안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
-            현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
-            귀하의 **소비 충동성 지수 (Impulse Spending Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.20 이하)
+              st.session_state.chat_history = []
+              
+              if highest_impulse_category:
+                  impulse_info = f"가장 높은 충동성 지출은 **{highest_impulse_category}** 카테고리이며, 총 **{highest_impulse_amount:,.0f} KRW**입니다."
+              else:
+                  impulse_info = "아직 충동성 지출 항목이 명확하게 분석되지 않았습니다."
 
-            이 지수는 귀하의 지출 중 비계획적이고 습관적인 손실성 소비의 비율을 나타냅니다.
-            어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+              initial_message = f"""
+              안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
+              현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
+              귀하의 **정교한 소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
+              {impulse_info}
 
-            * "제 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"
-            * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
-            * "제 지출에서 가장 큰 **습관적 손실** 항목을 알려주세요."
-            """
-             st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
+              어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+
+              * **"제 정교한 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
+              * **"제일 많이 쓰는 충동성 항목({highest_impulse_category} 등)의 비용을 줄일 대안을 추천해주세요."**
+              * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
+              """
+              st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
 
         # Display chat history
-        # ... (이하 기존 채팅 history display 및 prompt input 로직 유지)
-        
-        # ... (이하 기존 채팅 history display 및 prompt input 로직 유지)
         for message in st.session_state.chat_history:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
@@ -1105,12 +1300,10 @@ with tab2:
             with st.chat_message("assistant"):
                 with st.spinner("Expert is thinking..."):
                     try:
-                        # --- 🌟 수정된 역할 매핑 로직 시작 🌟 ---
                         combined_contents = []
-                        history_items = st.session_state.chat_history # 모든 기록을 사용 (마지막 user prompt 포함)
+                        history_items = st.session_state.chat_history 
                         
                         for item in history_items:
-                            # Streamlit 역할(user, assistant)을 Gemini 역할(user, model)로 매핑합니다.
                             gemini_role = "user" if item["role"] == "user" else "model" 
                             
                             combined_contents.append({
@@ -1118,14 +1311,9 @@ with tab2:
                                 "parts": [{"text": item["content"]}]
                             })
                         
-                        # Note: st.session_state.chat_history에 마지막 user prompt가 이미 추가되어 있으므로,
-                        # combined_contents는 마지막까지 정확히 구성됩니다.
-                        
-                        # --- 🌟 수정된 역할 매핑 로직 종료 🌟 ---
-
                         response = client.models.generate_content(
                             model='gemini-2.5-flash',
-                            contents=combined_contents, # ⬅️ 이제 올바른 역할(user/model)이 포함됨
+                            contents=combined_contents, 
                             config=genai.types.GenerateContentConfig(
                                 system_instruction=system_instruction
                             )
@@ -1136,3 +1324,154 @@ with tab2:
                         
                     except Exception as e:
                         st.error(f"Chatbot API call failed: {e}")
+
+# ======================================================================
+# 		 	TAB 3: PDF REPORT GENERATOR (NEW)
+# ======================================================================
+with tab3:
+    st.header("📄 Comprehensive Spending Report (PDF)")
+
+    st.warning("🚨 **나눔고딕 폰트 필수:** PDF 생성을 위해서는 **나눔고딕** 폰트 파일(`NanumGothic.ttf`, `NanumGothicBold.ttf`)이 **프로젝트 폴더 내 `fonts/` 폴더에** 있어야 합니다.")
+
+    if not st.session_state.all_receipts_items:
+        st.warning("지출 내역이 있어야 보고서를 생성할 수 있습니다. 'Analysis & Tracking' 탭에서 데이터를 분석해주세요.")
+    else:
+        
+        # 1. 데이터 준비 (PDF 보고서에 필요한 핵심 지표 재계산)
+        # 📢 [FIX] 1. Summary 데이터와 Item 데이터를 결합하여 날짜/상점 정보를 Item에 추가
+        summary_list = st.session_state.all_receipts_summary
+        items_list = st.session_state.all_receipts_items
+        
+        items_with_meta = []
+        for item_df, summary in zip(items_list, summary_list):
+            item_df_copy = item_df.copy()
+            
+            if 'Date' not in item_df_copy.columns:
+                item_df_copy['Date'] = summary.get('Date', 'N/A')
+            if 'Store' not in item_df_copy.columns:
+                item_df_copy['Store'] = summary.get('Store', 'N/A')
+                
+            items_with_meta.append(item_df_copy)
+            
+        all_items_df = pd.concat(items_with_meta, ignore_index=True)
+        
+        all_items_df['Psychological Category'] = all_items_df['AI Category'].apply(get_psychological_category)
+        
+        # 심리적 요약 데이터
+        psychological_summary_pdf = all_items_df.groupby('Psychological Category')['KRW Total Spend'].sum().reset_index()
+        psychological_summary_pdf.columns = ['Category', 'Amount (KRW)']
+        total_spent = psychological_summary_pdf['Amount (KRW)'].sum()
+        
+        # 충동 지수 (Tab 2에서 계산된 값 재사용)
+        impulse_spending = psychological_summary_pdf.loc[psychological_summary_pdf['Category'] == PSYCHOLOGICAL_CATEGORIES[2], 'Amount (KRW)'].sum()
+        total_transactions = len(all_items_df)
+        impulse_transactions = len(all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]])
+        
+        if total_spent > 0 and total_transactions > 0:
+            amount_ratio = impulse_spending / total_spent
+            frequency_ratio_factor = np.sqrt(impulse_transactions / total_transactions)
+            impulse_index = amount_ratio * frequency_ratio_factor
+        else:
+            impulse_index = 0.0
+
+        # 최고 충동 카테고리 (Tab 2에서 계산된 값 재사용)
+        highest_impulse_category = "N/A"
+        impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
+        if not impulse_items_df.empty:
+            highest_impulse_category_calc = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
+            if not highest_impulse_category_calc.empty:
+                highest_impulse_category = highest_impulse_category_calc.idxmax()
+        
+        
+        # 2. PDF 생성 함수 정의 (버튼 클릭 시 실행)
+        def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
+            pdf = PDF(orientation='P', unit='mm', format='A4')
+            
+            # 📢 [NEW FIX] Nanum Gothic 폰트 로드 (fonts/ 폴더 사용)
+            # 폰트 로딩 실패 시 바로 None을 반환하도록 로직 변경
+            try:
+                 # 폰트 파일이 'fonts/' 폴더 안에 있다고 가정하고 상대 경로를 지정합니다.
+                 pdf.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
+                 pdf.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
+                 pdf.set_font('Nanum', '', 10) # 기본 폰트 설정
+            except Exception as e:
+                 # 폰트 로드 실패 시 None 반환 및 사용자에게 오류 표시
+                 st.error(f"❌ PDF 폰트 로드 실패: 'fonts/' 폴더에 NanumGothic 폰트 파일이 누락되었거나 경로가 잘못되었습니다.")
+                 st.exception(e)
+                 return None 
+            
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.add_page()
+            
+            # Section 1: Executive Summary
+            pdf.chapter_title("1. Executive Summary & Key Metrics")
+            
+            summary_body = (
+                f"총 누적 지출액: {total_spent:,.0f} KRW\n"
+                f"정교한 소비 충동성 지수 (Refined Impulse Index): {impulse_index:.2f} (목표: 0.15 이하)\n"
+                f"가장 높은 충동 지출 카테고리: {high_impulse_cat}\n\n"
+                f"이 보고서는 귀하의 지출 패턴을 심리적 관점에서 분석하고, 효율적인 재무 목표 달성을 위한 맞춤형 조언을 제공합니다."
+            )
+            pdf.chapter_body(summary_body)
+
+            # Section 2: Consumption Profile
+            pdf.chapter_title("2. Psychological Consumption Profile")
+            pdf.chapter_body("지출을 투자/경험/습관/고정 비용으로 나눈 심리적 소비 분류 요약입니다:")
+            
+            # Simpler table for PDF
+            psycho_summary_display = psycho_summary.copy()
+            psycho_summary_display['Amount (KRW)'] = psycho_summary_display['Amount (KRW)'].apply(lambda x: f"{x:,.0f}")
+            
+            # 📢 [FIX] 변수 이름 오타 수정
+            pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
+
+            # Section 3: Chat Consultation History
+            pdf.chapter_title("3. Financial Expert Consultation History")
+            pdf.set_font('Nanum', '', 9)
+            
+            # 📢 [FIX] 채팅 기록이 없는 경우 처리
+            if not chat_history_list:
+                pdf.chapter_body("상담 내역이 없습니다. 'Financial Expert Chat' 탭에서 전문가와 대화를 시작해보세요.")
+            else:
+                for chat in chat_history_list:
+                    role = "Advisor" if chat['role'] == 'assistant' else "You"
+                    # 줄바꿈 문자를 공백으로 치환하여 PDF 레이아웃 유지
+                    text = chat['content'].replace('\n', ' ').replace('\r', ' ')
+                    pdf.multi_cell(0, 4, f"{role}: {text}", border=0)
+                    pdf.ln(1)
+            
+            # Section 4: Detailed Transaction Data (ALL ITEMS)
+            pdf.chapter_title("4. Detailed Transaction History")
+            # 📢 [FIX] all_items_df에 'Date'와 'Store' 컬럼이 추가되었으므로 사용할 수 있습니다.
+            # 📢 [FIX] .tail(10) 제거하여 모든 항목 표시
+            pdf.chapter_body(f"총 {len(all_items_df)}건의 상세 지출 내역:")
+            
+            # 📢 .tail(10) 제거하여 전체 항목 사용
+            detailed_data = all_items_df[['Date', 'Store', 'Item Name', 'AI Category', 'KRW Total Spend']].copy() 
+            detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
+            
+            # 📢 [FIX] 컬럼 이름 수정: Date와 Store를 포함
+            pdf.add_table(detailed_data, ['Date', 'Store', 'Item Name', 'Category', 'Amount (KRW)'])
+            
+            # 📢 [CRITICAL FIX] output() 결과를 bytes()로 변환
+            pdf_result = bytes(pdf.output(dest='S')) 
+            return pdf_result
+
+
+        # 3. Streamlit Download Button
+        pdf_output = create_pdf_report(
+            psychological_summary_pdf, 
+            total_spent, 
+            impulse_index, 
+            highest_impulse_category, 
+            st.session_state.chat_history
+        )
+        
+        # 폰트 로드 실패 시 create_pdf_report는 None을 반환합니다.
+        if pdf_output:
+            st.download_button(
+                label="⬇️ Download PDF Report",
+                data=pdf_output,
+                file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
+                mime='application/pdf',
+            )
