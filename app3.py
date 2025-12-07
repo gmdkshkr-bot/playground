@@ -1272,16 +1272,18 @@ with tab2:
                   impulse_info = "아직 충동성 지출 항목이 명확하게 분석되지 않았습니다."
 
               initial_message = f"""
-              안녕하세요! 저는 귀하의 소비 심리 패턴을 분석하는 AI 금융 심리 전문가입니다. 🧠
-              현재까지 총 **{total_spent:,.0f} KRW**의 지출이 기록되었으며,
-              귀하의 **정교한 소비 충동성 지수 (Refined Impulse Index)**는 **{impulse_index:.2f}**으로 분석되었습니다. (목표치는 0.15 이하)
-              {impulse_info}
+              Hello! I'm your AI Financial Expert. 🧠
+              Your total spending recorded so far is {total_spent:,.0f} KRW. Your Calculated Impulse Index stands at {impulse_index:.2f} (Target: below 0.15). {impulse_info}
+              What specific psychological advice would you like? For example, you can ask:
 
-              어떤 부분에 대해 더 자세한 심리적 조언을 드릴까요? 예를 들어, 다음과 같은 질문을 할 수 있습니다.
+              "Analyze my spending."
 
-              * **"제 정교한 충동성 지수 {impulse_index:.2f}이 의미하는 바는 무엇인가요?"**
-              * **"제일 많이 쓰는 충동성 항목({highest_impulse_category} 등)의 비용을 줄일 대안을 추천해주세요."**
-              * "지출을 **'미래 투자(Investment / Asset)'**로 전환하려면 어떻게 해야 할까요?"
+              "What does my Impulse Index of {impulse_index:.2f} signify?"
+
+              "Could you recommend alternatives to reduce the cost of my biggest impulse item ({highest_impulse_category}, etc.)?"
+
+              "How can I convert my spending into 'Investment / Asset'?"
+             
               """
               st.session_state.chat_history.append({"role": "assistant", "content": initial_message})
 
