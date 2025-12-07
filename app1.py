@@ -1042,7 +1042,7 @@ with tab1:
                 )
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-                    st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No spending data found to generate the pie chart.")
         
