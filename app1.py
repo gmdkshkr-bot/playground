@@ -128,7 +128,7 @@ def get_exchange_rates():
     Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
     # Fallback Rates: 1 Foreign Unit = X KRW
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
@@ -407,7 +407,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     {summary_text}
     ---
     
-    **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+    **CRITICAL DETAILED DATA:** Below are the individual item names, their original AI categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
     --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
     {detailed_items_text}
     ---
@@ -481,12 +481,13 @@ class PDF(FPDF):
 
 # 📢 [NEW] Font loading function for PDF (cached resource)
 @st.cache_resource
-def load_pdf_fonts(pdf_instance):
+def load_pdf_fonts(_pdf_instance):
     """Registers Nanum fonts with FPDF, returns False if failed."""
+    # 📢 [CRITICAL FIX] Added leading underscore to bypass hashing
     try:
          # Uses relative path from app root/fonts folder
-         pdf_instance.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
-         pdf_instance.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
+         _pdf_instance.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
+         _pdf_instance.add_font('Nanum', 'B', 'fonts/NanumGothicBold.ttf', uni=True)
          return True
     except Exception as e:
          return False 
@@ -497,13 +498,6 @@ def load_pdf_fonts(pdf_instance):
 # ----------------------------------------------------------------------
 
 tab1, tab2, tab3 = st.tabs(["📊 Analysis & Tracking", "💬 Financial Expert Chat", "📄 PDF Report"])
-
-
-# ----------------------------------------------------------------------
-# CSS INJECTION for Sticky Tab Bar (Unofficial Fix for UX)
-# NOTE: Removed due to instability in many Streamlit environments
-# st.markdown("""...""", unsafe_allow_html=True)
-# ----------------------------------------------------------------------
 
 
 # ======================================================================
@@ -1131,11 +1125,10 @@ with tab2:
         
         psychological_summary_text = psychological_summary.to_string(index=False)
         
-        highest_impulse_category = ""
+        highest_impulse_category = "N/A"
         highest_impulse_amount = 0
         
         impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
-        
         if not impulse_items_df.empty:
             impulse_category_sum = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
             if not impulse_category_sum.empty:
