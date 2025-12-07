@@ -397,8 +397,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     summary_text = summary_df.to_string(index=False)
 
     prompt_template = f"""
-    You are an expert in receipt analysis and ledger recording, acting as a **friendly yet professional financial advisor**.
-    Your analysis must be based strictly on the provided data, ensuring high credibility and clarity.
+    You are a supportive, friendly, and highly knowledgeable Financial Psychologist and Advisor. Your role is to analyze the user's spending habits from a **psychological and behavioral economics perspective**, and provide personalized advice on overcoming impulse spending and optimizing happiness per won. Your tone should be consistently polite and helpful, like a professional mentor.
 
     The user's **all accumulated spending** amounts to {total_amount:,.0f} {currency_unit}.
     
@@ -407,7 +406,7 @@ def generate_ai_analysis(summary_df: pd.DataFrame, store_name: str, total_amount
     {summary_text}
     ---
     
-    **CRITICAL DETAILED DATA:** Below are the individual item names, their original AI categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
+    **CRITICAL DETAILED DATA:** Below are the individual item names, their categories, and total costs. Use this data to provide qualitative and specific advice (e.g., mention specific products or stores if patterns are observed).
     --- Detailed Items Data (AI Category, Item Name, Total Spend) ---
     {detailed_items_text}
     ---
@@ -479,11 +478,10 @@ class PDF(FPDF):
             self.ln()
 
 
-# 📢 [NEW] Font loading function for PDF (cached resource)
-@st.cache_resource
-def load_pdf_fonts(_pdf_instance):
+# 📢 [NEW] Font loading function for PDF (non-cached)
+def register_pdf_fonts(_pdf_instance):
     """Registers Nanum fonts with FPDF, returns False if failed."""
-    # 📢 [CRITICAL FIX] Added leading underscore to bypass hashing
+    # 📢 [FIX] Removed @st.cache_resource to avoid UnhashableParamError
     try:
          # Uses relative path from app root/fonts folder
          _pdf_instance.add_font('Nanum', '', 'fonts/NanumGothic.ttf', uni=True) 
@@ -1044,7 +1042,7 @@ with tab1:
                 )
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 fig.update_layout(margin=dict(t=30, b=0, l=0, r=0), height=400)
-                st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("No spending data found to generate the pie chart.")
         
@@ -1125,7 +1123,7 @@ with tab2:
         
         psychological_summary_text = psychological_summary.to_string(index=False)
         
-        highest_impulse_category = "N/A"
+        highest_impulse_category = ""
         highest_impulse_amount = 0
         
         impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
@@ -1286,7 +1284,7 @@ with tab3:
             pdf = PDF(orientation='P', unit='mm', format='A4')
             
             # 📢 [FONT LOAD FIX] Load fonts and check for failure
-            font_loaded = load_pdf_fonts(pdf)
+            font_loaded = register_pdf_fonts(pdf)
             
             if not font_loaded:
                  st.error(f"❌ PDF Font Load Failed: NanumGothic font files missing in 'fonts/' folder.")
@@ -1315,7 +1313,6 @@ with tab3:
             psycho_summary_display = psycho_summary.copy()
             psycho_summary_display['Amount (KRW)'] = psycho_summary_display['Amount (KRW)'].apply(lambda x: f"{x:,.0f}")
             
-            # 📢 [FIX] Variable Name fix
             pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
 
             # Section 3: Chat Consultation History
