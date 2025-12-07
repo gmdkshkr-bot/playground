@@ -128,7 +128,7 @@ def get_exchange_rates():
     Returns a dictionary: {currency_code: 1 Foreign Unit = X KRW}
     """
     
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_API_KEY}/latest/USD"
+    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
     # Fallback Rates: 1 Foreign Unit = X KRW
     FALLBACK_RATES = {'KRW': 1.0, 'USD': 1350.00, 'EUR': 1450.00, 'JPY': 9.20} 
     exchange_rates = {'KRW': 1.0} 
@@ -291,7 +291,7 @@ if 'chat_history' not in st.session_state:
 
 
 st.set_page_config(
-    page_title="Smart Receipt Analyzer & Tracker 🧾",
+    page_title="AI Powered Receipt Recorder 🧾",
     layout="wide"
 )
 
