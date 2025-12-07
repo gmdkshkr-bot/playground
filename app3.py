@@ -1160,6 +1160,7 @@ with tab2:
         highest_impulse_category = ""
         highest_impulse_amount = 0
         
+        # 📢 [FIX] Renamed 'all_' to 'all_items_df'
         impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
         if not impulse_items_df.empty:
             impulse_category_sum = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
@@ -1320,4 +1321,87 @@ with tab3:
             impulse_index = 0.0
 
         highest_impulse_category = "N/A"
-        impulse_items_df = all_
+        impulse_items_df = all_items_df[all_items_df['Psychological Category'] == PSYCHOLOGICAL_CATEGORIES[2]]
+        if not impulse_items_df.empty:
+            highest_impulse_category_calc = impulse_items_df.groupby('AI Category')['KRW Total Spend'].sum()
+            if not highest_impulse_category_calc.empty:
+                highest_impulse_category = highest_impulse_category_calc.idxmax()
+        
+        
+        # 2. PDF Creation Function
+        def create_pdf_report(psycho_summary, total_spent, impulse_index, high_impulse_cat, chat_history_list):
+            pdf = PDF(orientation='P', unit='mm', format='A4')
+            
+            # 📢 [FONT LOAD FIX] Load fonts and check for failure
+            font_loaded = register_pdf_fonts(pdf)
+            
+            if not font_loaded:
+                 st.error(f"❌ PDF Font Load Failed: NanumGothic font files missing in 'fonts/' folder.")
+                 return None 
+            
+            pdf.set_font('Nanum', '', 10) 
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.add_page()
+            
+            # Section 1: Executive Summary
+            pdf.chapter_title("1. Executive Summary & Key Metrics")
+            
+            summary_body = (
+                f"Total Accumulated Spending: {total_spent:,.0f} KRW\n"
+                f"Refined Impulse Spending Index: {impulse_index:.2f} (Target: below 0.15)\n"
+                f"Highest Impulse Category: {high_impulse_cat}\n\n"
+                f"This report analyzes your spending patterns from a psychological perspective and provides tailored advice for effective financial goal achievement."
+            )
+            pdf.chapter_body(summary_body)
+
+            # Section 2: Consumption Profile
+            pdf.chapter_title("2. Psychological Consumption Profile")
+            pdf.chapter_body("Summary of psychological spending breakdown (Investment/Experience/Habit/Fixed Cost):")
+            
+            # Simpler table for PDF
+            psycho_summary_display = psycho_summary.copy()
+            psycho_summary_display['Amount (KRW)'] = psycho_summary_display['Amount (KRW)'].apply(lambda x: f"{x:,.0f}")
+            
+            pdf.add_table(psycho_summary_display, ['Category', 'Amount (KRW)'])
+
+            # Section 3: Chat Consultation History
+            pdf.chapter_title("3. Financial Expert Consultation Summary")
+            
+            # 📢 [NEW] Generate concise summary using AI
+            if chat_history_list:
+                # Use all calculated data including Economic Profile for comprehensive summary
+                summary_text = generate_chat_summary(chat_history_list, total_spent, impulse_index, high_impulse_cat)
+                pdf.chapter_body(summary_text)
+            else:
+                pdf.chapter_body("No consultation history found. Start a conversation in the 'Financial Expert Chat' tab.")
+            
+            # Section 4: Detailed Transaction Data (ALL ITEMS)
+            pdf.chapter_title("4. Detailed Transaction History")
+            pdf.chapter_body(f"Total {len(all_items_df)} detailed transaction records:")
+            
+            detailed_data = all_items_df[['Date', 'Store', 'Item Name', 'AI Category', 'KRW Total Spend']].copy() 
+            detailed_data['KRW Total Spend'] = detailed_data['KRW Total Spend'].apply(lambda x: f"{x:,.0f}")
+            
+            pdf.add_table(detailed_data, ['Date', 'Store', 'Item Name', 'Category', 'Amount (KRW)'])
+            
+            # 📢 [CRITICAL FIX] Convert output to bytes()
+            pdf_result = bytes(pdf.output(dest='S')) 
+            return pdf_result
+
+
+        # 3. Streamlit Download Button
+        pdf_output = create_pdf_report(
+            psychological_summary_pdf, 
+            total_spent, 
+            impulse_index, 
+            highest_impulse_category, 
+            st.session_state.chat_history
+        )
+        
+        if pdf_output:
+            st.download_button(
+                label="⬇️ Download PDF Report",
+                data=pdf_output,
+                file_name=f"Financial_Report_{datetime.date.today().strftime('%Y%m%d')}.pdf",
+                mime='application/pdf',
+            )
