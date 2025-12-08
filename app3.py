@@ -315,7 +315,7 @@ with st.sidebar:
     if st.session_state.all_receipts_items:
         st.info(f"Currently tracking {len(st.session_state.all_receipts_summary)} receipts.") 
         
-st.title("🧾 Smart Receipt Analyzer & Tracker")
+st.title("🧾 AI-powered receipt recorder")
 st.markdown("---")
 
 
