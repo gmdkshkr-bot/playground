@@ -1228,6 +1228,8 @@ with tab2:
 
               How can I help you improve your financial health and spending efficiency? You can ask:
 
+              * **"Analyze my spending"**
+              * **"Any advice for saving tips?**
               * **"What do my index and spending variability mean for my budget?"**
               * **"Could you recommend low-cost alternatives for my biggest impulse item?"**
               * "How can I better align my spending with my **'Investment / Asset'** goals?"
