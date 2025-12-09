@@ -8,7 +8,21 @@ This project is an AI-driven personal ledger and spending management application
 The application is structured around four core tabs:
 📊 Analysis & Tracking
   AI Receipt Analysis: Automatically extracts the store name, date, items, amounts,     and categories from uploaded receipt images, converting all amounts to KRW.
-  Manual Input/CSV Import: Supports manual expense recording and accumulation of previous ledger history via CSV files.Spending Visualization: Provides spending trend over time, a spending location map, and category breakdown via bar and pie charts.💬 Financial Expert ChatFinancial Psychology Analysis: Calculates the Impulse Index and objective economic metrics based on accumulated spending data.Gemini-Powered Consultation: An AI Financial Psychologist uses the calculated metrics and detailed item data to offer personalized analysis of spending habits and actionable saving tips.📄 PDF ReportGenerates a comprehensive, printable PDF report summarizing the accumulated spending analysis and the core advice extracted from the AI consultation history.🛠️ Technology Stack and RequirementsLanguage: Python 3.9+Frameworks/Libraries: streamlit, google-genai, pandas, requests, plotly.express, Pillow (PIL), fpdf2External APIs:Google Gemini API: Used for receipt data extraction and financial psychology consultation.ExchangeRate-API: Used to fetch real-time currency exchange rates.Kakao Local API: Used for geocoding (converting spending location addresses to latitude/longitude for map visualization).🚀 Setup and Running the Application1. Environment ConfigurationInstall Dependencies:Bashpip install streamlit pandas numpy requests plotly fpdf2 google-genai Pillow
+  
+  Manual Input/CSV Import: Supports manual expense recording and accumulation of        previous ledger history via CSV files.
+  
+  Spending Visualization: Provides spending trend over time, a spending location map, and category breakdown via bar and pie charts.
+  
+💬 Financial Expert Chat
+  Financial Psychology Analysis: Calculates the Impulse Index and objective economic metrics based on accumulated spending data.
+  
+  Gemini-Powered Consultation: An AI Financial Psychologist uses the calculated metrics and detailed item data to offer personalized analysis of spending habits and actionable saving tips.
+  
+📄 PDF Report
+  Generates a comprehensive, printable PDF report summarizing the accumulated spending analysis and the core advice extracted from the AI consultation history.
+  
+  
+🛠️ Technology Stack and RequirementsLanguage: Python 3.9+Frameworks/Libraries: streamlit, google-genai, pandas, requests, plotly.express, Pillow (PIL), fpdf2External APIs:Google Gemini API: Used for receipt data extraction and financial psychology consultation.ExchangeRate-API: Used to fetch real-time currency exchange rates.Kakao Local API: Used for geocoding (converting spending location addresses to latitude/longitude for map visualization).🚀 Setup and Running the Application1. Environment ConfigurationInstall Dependencies:Bashpip install streamlit pandas numpy requests plotly fpdf2 google-genai Pillow
 Set API Keys (Streamlit Secrets):You must create a .streamlit/secrets.toml file in the project root directory and set the following API keys:Ini, TOML# .streamlit/secrets.toml
 GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
 EXCHANGE_RATE_API_KEY = "YOUR_EXCHANGE_RATE_API_KEY"
