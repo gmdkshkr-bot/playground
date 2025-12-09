@@ -290,7 +290,7 @@ if 'chat_history' not in st.session_state:
 
 
 st.set_page_config(
-    page_title="Smart Receipt Analyzer & Tracker 🧾",
+    page_title="AI-powered receipt recorder",
     layout="wide"
 )
 
